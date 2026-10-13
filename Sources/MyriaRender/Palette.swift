@@ -70,9 +70,11 @@ public struct Palette: Identifiable, Hashable, Sendable {
     static let terrainLand = Colormap(hex: ["#5d9b5a", "#8db36a", "#c8c27a", "#d4a86a", "#a8805e", "#8c7b70", "#e8e6e3"])
     static let terrainSea = Colormap(hex: ["#0b2346", "#123a6b", "#1d5590", "#3b7db8", "#73a9d6", "#b6d6ee"])
     static let rain = Colormap(hex: ["#dcc489", "#c9c27e", "#9fc26a", "#58ae74", "#2a90a6", "#2c5fa6", "#3b2d83"])
-    static let wind = Colormap(hex: ["#283a6e", "#29688e", "#2f9a98", "#7cc679", "#e0e25b", "#fbf5c8"])
+    static let wind = Colormap(hex: ["#283a6e", "#29688e", "#2f9a98", "#7cc679", "#e0e25b", "#f2b93b"])
     static let landness = Colormap(hex: ["#295b8a", "#7fa9d4", "#cfdde1", "#f2d27f", "#c98b39"])
     static let distance = Colormap(hex: ["#0d2b52", "#2d68a1", "#93c1e4", "#f4f1e6", "#d8c08a", "#a67a45", "#5b3c1f"])
+    /// For dark pages: the open sea stays clear of the page colour.
+    static let distanceDark = Colormap(hex: ["#3a76b8", "#5f97cf", "#a6cbec", "#efe9d8", "#d2b47c", "#a5783f", "#7a5530"])
 
     static func scales(density: Colormap, heat: Colormap, rain: Colormap = Palette.rain, wind: Colormap = Palette.wind,
                        landness: Colormap = Palette.landness, distance: Colormap = Palette.distance,
@@ -117,7 +119,8 @@ public struct Palette: Identifiable, Hashable, Sendable {
             backface: RGBA(hex: "#28313d"),
             reliefLand: Colormap(hex: ["#c9a24f", "#bb9446", "#a8814a", "#8f6f4f", "#7a6a60", "#d6d0c4"]),
             reliefSea: Colormap(hex: ["#0b1d36", "#132c4f", "#1a3a63", "#1d3b61", "#2a4f7a"]), hillshade: 0.5,
-            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#0e1521", "#3a1435", "#8c2240", "#d9542f", "#f9a740", "#fff3c9"]))))
+            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#0e1521", "#3a1435", "#8c2240", "#d9542f", "#f9a740", "#fff3c9"]),
+                              distance: Palette.distanceDark)))
 
     // MARK: Atlas
 
@@ -140,7 +143,7 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#8fb0bd", "#a7c3cb", "#bed4d7", "#d6e2e0", "#e3ebe8"]), hillshade: 0.4,
             colormaps: scales(density: Colormap(hex: ["#f1ebdc", "#e6c99a", "#d08a5c", "#a54e3e", "#5e2b3a"]),
                               heat: Colormap(hex: ["#f1ebdc", "#e3c08e", "#c97c52", "#9a3f37", "#4f2232"]),
-                              rain: Colormap(hex: ["#efe2c6", "#d7cf9a", "#a8bf86", "#6fa28a", "#4f7fa6", "#4b5d8c"]))),
+                              rain: Colormap(hex: ["#e0cda0", "#d2c690", "#a8bf86", "#6fa28a", "#4f7fa6", "#4b5d8c"]))),
         dark: PaletteStyle(
             background: RGBA(hex: "#14110d"), ocean: RGBA(hex: "#1a2422"), land: RGBA(hex: "#3a3125"),
             coastline: RGBA(hex: "#f6efe0", alpha: 0.4), graticule: RGBA(hex: "#f6efe0", alpha: 0.12),
@@ -155,7 +158,8 @@ public struct Palette: Identifiable, Hashable, Sendable {
             backface: RGBA(hex: "#3a332a"),
             reliefLand: Colormap(hex: ["#3b3a28", "#4a432c", "#584a33", "#5f4f3e", "#5a5048", "#bdb6a9"]),
             reliefSea: Colormap(hex: ["#0d1413", "#131c1b", "#18211f", "#1c2422", "#25302d"]), hillshade: 0.55,
-            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#14110d", "#3d2216", "#7a3a22", "#c0682f", "#efb35c", "#fbecc7"]))))
+            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#14110d", "#3d2216", "#7a3a22", "#c0682f", "#efb35c", "#fbecc7"]),
+                              distance: Palette.distanceDark)))
 
     // MARK: Blueprint
 
@@ -178,8 +182,8 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#8fb0d6", "#a8c2e0", "#bed2ea", "#d8e5f2", "#e6eef7"]), hillshade: 0.35,
             colormaps: scales(density: Colormap(hex: ["#f7fafd", "#bcd3f2", "#6f9be0", "#3159b5", "#0a2540"]),
                               heat: Colormap(hex: ["#f7fafd", "#bcd3f2", "#6f9be0", "#3159b5", "#0a2540"]),
-                              rain: Colormap(hex: ["#f7fafd", "#d4e3f5", "#9ec2ea", "#5b93d6", "#2a5db3", "#0a2540"]),
-                              wind: Colormap(hex: ["#f7fafd", "#cfe0f4", "#8fb6e6", "#4f86d0", "#1f4f9e"]))),
+                              rain: Colormap(hex: ["#c4d6ec", "#b3cbe9", "#9ec2ea", "#5b93d6", "#2a5db3", "#0a2540"]),
+                              wind: Colormap(hex: ["#c4d6ec", "#b3cbe9", "#8fb6e6", "#4f86d0", "#1f4f9e"]))),
         dark: PaletteStyle(
             background: RGBA(hex: "#0a2240"), ocean: RGBA(hex: "#0d2a4d"), land: RGBA(hex: "#16406f"),
             coastline: RGBA(hex: "#e6f0ff", alpha: 0.75), graticule: RGBA(hex: "#d6e8ff", alpha: 0.16),
@@ -196,7 +200,8 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#06182f", "#0a2240", "#0b2647", "#0d2a4d", "#113258"]), hillshade: 0.45,
             colormaps: scales(density: Colormap(hex: ["#0a2240", "#1d4f8f", "#3a86c8", "#8fd0f0", "#f2fbff"]),
                               heat: Colormap(hex: ["#0a2240", "#1d4f8f", "#3a86c8", "#8fd0f0", "#f2fbff"]),
-                              rain: Colormap(hex: ["#0a2240", "#123b6b", "#1d5f9a", "#3b8fca", "#8fd0f0", "#f2fbff"]))))
+                              rain: Colormap(hex: ["#1d4677", "#21558c", "#1d5f9a", "#3b8fca", "#8fd0f0", "#f2fbff"]),
+                              distance: Palette.distanceDark)))
 
     // MARK: Midnight
 
@@ -236,10 +241,10 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#020408", "#03060c", "#040810", "#060a13", "#0a1220"]), hillshade: 0.6,
             colormaps: scales(density: Colormap(hex: ["#03050a", "#2e1065", "#7e22ce", "#db2777", "#fb923c", "#fde68a"]),
                               heat: Colormap(hex: ["#03050a", "#3b0764", "#9d174d", "#ea580c", "#facc15", "#fefce8"]),
-                              rain: Colormap(hex: ["#03050a", "#0c2340", "#0e4a6e", "#0e7490", "#22d3ee", "#a5f3fc"]),
-                              wind: Colormap(hex: ["#03050a", "#0c4a6e", "#0e7490", "#14b8a6", "#a3e635", "#fefce8"]),
-                              landness: Colormap(hex: ["#03050a", "#0c4a6e", "#38bdf8", "#facc15", "#f97316"]),
-                              distance: Colormap(hex: ["#020617", "#0c4a6e", "#0ea5e9", "#e2e8f0", "#f59e0b", "#b45309", "#451a03"]))))
+                              rain: Colormap(hex: ["#16263f", "#123056", "#0e4a6e", "#0e7490", "#22d3ee", "#a5f3fc"]),
+                              wind: Colormap(hex: ["#16263f", "#0c4a6e", "#0e7490", "#14b8a6", "#a3e635", "#fefce8"]),
+                              landness: Colormap(hex: ["#16263f", "#0c4a6e", "#38bdf8", "#facc15", "#f97316"]),
+                              distance: Colormap(hex: ["#1d4f7a", "#0e6aa8", "#38bdf8", "#e2e8f0", "#f59e0b", "#b45309", "#7a3410"]))))
 
     // MARK: Ink
 
@@ -262,12 +267,12 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#d6d6d6", "#e4e4e4", "#f0f0f0", "#fafafa", "#ffffff"]), hillshade: 0.5,
             colormaps: scales(density: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]),
                               heat: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]),
-                              rain: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]),
-                              wind: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]),
-                              landness: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]),
+                              rain: Colormap(hex: ["#e6e6e6", "#bdbdbd", "#6e6e6e", "#111111"]),
+                              wind: Colormap(hex: ["#e6e6e6", "#bdbdbd", "#6e6e6e", "#111111"]),
+                              landness: Colormap(hex: ["#e6e6e6", "#bdbdbd", "#6e6e6e", "#111111"]),
                               distance: Colormap(hex: ["#3a3a3a", "#9a9a9a", "#ffffff", "#9a9a9a", "#3a3a3a"]),
                               terrain: Colormap(hex: ["#f2f2f2", "#cfcfcf", "#a0a0a0", "#ffffff"]),
-                              sequential: Colormap(hex: ["#ffffff", "#bdbdbd", "#6e6e6e", "#111111"]))),
+                              sequential: Colormap(hex: ["#e6e6e6", "#bdbdbd", "#6e6e6e", "#111111"]))),
         dark: PaletteStyle(
             background: RGBA(hex: "#111213"), ocean: RGBA(hex: "#111213"), land: RGBA(hex: "#232426"),
             coastline: RGBA(hex: "#f2f2f2", alpha: 0.85), graticule: RGBA(hex: "#f2f2f2", alpha: 0.12),
@@ -284,12 +289,12 @@ public struct Palette: Identifiable, Hashable, Sendable {
             reliefSea: Colormap(hex: ["#0a0b0c", "#0d0e0f", "#0f1011", "#111213", "#151617"]), hillshade: 0.6,
             colormaps: scales(density: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
                               heat: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
-                              rain: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
-                              wind: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
-                              landness: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
+                              rain: Colormap(hex: ["#2c2d30", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
+                              wind: Colormap(hex: ["#2c2d30", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
+                              landness: Colormap(hex: ["#2c2d30", "#4a4a4a", "#9a9a9a", "#f2f2f2"]),
                               distance: Colormap(hex: ["#d0d0d0", "#6e6e6e", "#111213", "#6e6e6e", "#d0d0d0"]),
                               terrain: Colormap(hex: ["#2e2f31", "#4a4b4d", "#77787a", "#e0e0e0"]),
-                              sequential: Colormap(hex: ["#111213", "#4a4a4a", "#9a9a9a", "#f2f2f2"]))))
+                              sequential: Colormap(hex: ["#2c2d30", "#4a4a4a", "#9a9a9a", "#f2f2f2"]))))
 
     // MARK: Terra
 
@@ -326,5 +331,6 @@ public struct Palette: Identifiable, Hashable, Sendable {
             backface: RGBA(hex: "#1f2a24"),
             reliefLand: Colormap(hex: ["#2f5a34", "#4f7340", "#7d7f4a", "#7d6146", "#6b5a50", "#cfcac2"]),
             reliefSea: Colormap(hex: ["#050d1a", "#0a1a30", "#0f2742", "#173a5c", "#2a5a80"]), hillshade: 0.6,
-            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#0b0f12", "#3a1435", "#8c2240", "#d9542f", "#f9a740", "#fff3c9"]))))
+            colormaps: scales(density: Palette.magma, heat: Colormap(hex: ["#0b0f12", "#3a1435", "#8c2240", "#d9542f", "#f9a740", "#fff3c9"]),
+                              distance: Palette.distanceDark)))
 }

@@ -158,6 +158,22 @@ struct RenderTests {
         }
     }
 
+    /// Fields drawn opaquely must not fade into the page at either end of
+    /// their scale, or the map's outline (and its cuts) disappear.
+    @Test func opaqueColourScalesStandOutFromThePage() {
+        for palette in Palette.all {
+            for (variant, style) in [("light", palette.light), ("dark", palette.dark)] {
+                // Terrain is left out: its snowy end only ever colours peaks.
+                for hint in [ColormapHint.rain, .wind, .landness, .distance, .sequential] {
+                    let map = style.colormap(hint)
+                    for end in [map.stops.first!, map.stops.last!] {
+                        #expect(end.perceptualDistance(to: style.background) > 6, "\(palette.id) \(variant) \(hint)")
+                    }
+                }
+            }
+        }
+    }
+
     /// Every layout against its reference image.
     @Test(arguments: LayoutCatalog.all.map(\.descriptor.id))
     func snapshot(id: String) throws {

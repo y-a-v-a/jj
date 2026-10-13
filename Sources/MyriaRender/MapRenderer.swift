@@ -480,6 +480,26 @@ public final class MapRenderer {
         if case .groups = s.coloring { surface.baseMode = 3 }
         let reliefLUT = lut([style.reliefSea.table(), style.reliefLand.table()])
 
+        // An atmosphere around the globe while it is folded.
+        if folded {
+            let closed = Float(1 - min(max(s.unfold, 0), 1))
+            let radius = Float(s.viewport.scale * s.pixelScale)
+            let darkPage = style.background.relativeLuminance < 0.2
+            let air = style.ocean.perceptualMix(with: .white, darkPage ? 0.35 : 0.15)
+            var styles = [LineStyleGPU(color: air.withAlpha((darkPage ? 0.55 : 0.35) * pow(Double(closed), 6)).simd,
+                                       width: 0, glow: radius * 0.16)]
+            var halo = [PointInstance(local: .zero, face: UInt32(state.mesh.faceCount), style: 0, radius: radius * 0.98)]
+            var flatView = view
+            flatView.viewportSize = view.viewportSize
+            encoder.setRenderPipelineState(pipelines.point)
+            encoder.setDepthStencilState(pipelines.depthOff)
+            encoder.setVertexBytes(&halo, length: MemoryLayout<PointInstance>.stride, index: 0)
+            encoder.setVertexBuffer(poseBuffer, offset: 0, index: 1)
+            encoder.setVertexBytes(&styles, length: MemoryLayout<LineStyleGPU>.stride, index: 2)
+            encoder.setVertexBytes(&flatView, length: MemoryLayout<ViewUniforms>.stride, index: 3)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
+        }
+
         encoder.setDepthStencilState(folded ? pipelines.depthWrite : pipelines.depthOff)
 
         // Surfaces.

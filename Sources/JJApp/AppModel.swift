@@ -120,7 +120,9 @@ final class AppModel {
     var graticuleStep = UserDefaults.standard.object(forKey: "graticuleStep") as? Double ?? 15 {
         didSet { UserDefaults.standard.set(graticuleStep, forKey: "graticuleStep") }
     }
-    var showStory = true
+    var showStory = UserDefaults.standard.object(forKey: "showStory") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showStory, forKey: "showStory") }
+    }
 
     // MARK: Time
 
@@ -227,6 +229,16 @@ final class AppModel {
         rebuild()
         renderThumbnails()
         if defaults.bool(forKey: "tour") { toggleTour() }
+        // Load what hover cards and layers read, so the first use doesn't stall.
+        let data = engine.data
+        Task.detached(priority: .utility) {
+            _ = try? data.regions(.countries)
+            _ = try? data.timeZones()
+            _ = try? data.regions(.plates)
+            _ = try? data.places()
+            _ = try? data.field(FieldKey("elevation"))
+            _ = try? data.wind()
+        }
     }
 
     private var launchUnfold: Double?
@@ -332,10 +344,16 @@ final class AppModel {
     }
 
     private func install(_ new: MapState, resetCamera: Bool) {
+        let first = state == nil
         state = new
         if resetCamera {
             camera = MapCamera()
             globe = Self.facingRoot(new)
+        }
+        // The first map arrives as a globe and unfolds: unfolding the Earth.
+        if first && launchUnfold == nil {
+            unfold = 0
+            foldAnimation = Transition(phase: .unfolding, start: CACurrentMediaTime() + 0.35, from: 0, duration: 2.6)
         }
         hover = nil
         status = Self.describe(new)
@@ -401,7 +419,7 @@ final class AppModel {
                 }
             }
         } else if let a = foldAnimation {
-            let p = min(1, (time - a.start) / max(a.duration, 1e-3))
+            let p = max(0, min(1, (time - a.start) / max(a.duration, 1e-3)))
             let target: Double = a.from >= 0.5 ? 0 : 1
             unfold = a.from + (target - a.from) * Self.ease(p)
             if p >= 1 { foldAnimation = nil }
