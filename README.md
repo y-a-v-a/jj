@@ -103,11 +103,33 @@ shoreline of the ocean that may once have been there.
 - Six palettes, each with a light and a dark variant: **Van Wijk 2008**
   (the yellow land and blue sea of the paper), **Atlas**, **Blueprint**,
   **Midnight**, **Ink** and **Terra**.
-- Export to 4K or 8K PNG, an unfolding GIF, or the clipboard.
+- Export to 4K or 8K PNG, an unfolding GIF, the clipboard, or a **paper
+  globe** to print, cut out and fold (below).
 
 ![Day and night, live, in the Terra palette](docs/app-light.jpg)
 
 ![The Midnight palette](docs/gallery-midnight.jpg)
+
+## Paper globes
+
+A myriahedral map is a polyhedron cut open, so it can be closed again by
+hand. **Export → Paper Globe (PDF)** (or `jj paper`) cuts the layout once
+more on a myriahedron coarse enough to fold (about 80, 320 or 720 faces;
+the Platonic layouts keep their own solid) and lays it out for printing:
+
+- the net is split at hinges until every piece fits the sheet and no two
+  faces lie on top of each other;
+- every seam gets a numbered glue tab on whichever side it fits (the most
+  crowded seams choose first); narrow slits close edge to edge and need no
+  number;
+- the pieces are turned to their most compact orientation and packed
+  sheet by sheet, with the map printed at 300 dpi under vector cut lines,
+  dashed folds and the numbers.
+
+Choose the size (6 to 40 cm) and the paper (A4, A3, US Letter, Tabloid);
+the sheet previews every page as you go.
+
+![Paper globes: the icosahedron, Aligned with Continents and Coastlines](docs/paper-globes.jpg)
 
 ## Building
 
@@ -130,6 +152,8 @@ swift build -c release --product jj
 .build/release/jj render -l platonic -p solid=0 -o tetrahedron.png
 .build/release/jj render -l rivers -m graticule:0.5 --width 8000 -o rivers.png
 .build/release/jj animate -l geo-coastline -o unfold.gif
+.build/release/jj paper -l platonic --diameter 10 -o icosahedron.pdf
+.build/release/jj paper -l coastline --detail fine --paper a3 -o coastlines.pdf
 .build/release/jj gallery --palette midnight --dark --sheet sheet.jpg
 .build/release/jj stats -l point-of-view
 ```
@@ -187,7 +211,7 @@ swift build -c release --product jj
 
 ## Checked against the paper
 
-The tests (`swift test`; 102 Swift Testing tests, over 200 cases with their
+The tests (`swift test`; 112 Swift Testing tests, over 200 cases with their
 arguments) check the geometry,
 the data and each layout's theme, and render maps with Metal to look at
 the pixels:
@@ -205,7 +229,10 @@ the pixels:
 - **the maps conserve area**: painted land red and sea blue, the unfolded
   map's pixels reproduce the Earth's 29.2 % land share within 1.5 points;
 - the closed map is a disc; palettes keep land, sea and neighbouring
-  regions apart in both variants; snapshots of every layout stay put.
+  regions apart in both variants; snapshots of every layout stay put;
+- paper globes fold back: every face in one piece, each piece a tree of
+  folds, both sides of a seam equally long, nothing overlapping on the
+  sheets, and the printed pages showing 28 % land.
 
 ## Performance
 
@@ -221,10 +248,10 @@ prepared off the main thread.
 
 | Path | Contents |
 |---|---|
-| `Sources/MyriaCore` | vectors, myriahedra, topology, spanning trees (Kruskal and Prim), unfolding, folding, clipping, earcut, k-d tree |
+| `Sources/MyriaCore` | vectors, myriahedra, topology, spanning trees (Kruskal and Prim), unfolding, folding, clipping, earcut, k-d tree, paper nets |
 | `Sources/MyriaData` | bodies, datasets, fields, GeoJSON, the grid format, bundled data for the Earth, the Moon and Mars |
 | `Sources/MyriaLayouts` | the `Layout` protocol, the layout context, weights, the region tree, all layouts |
-| `Sources/MyriaRender` | palettes, per-face overlays, the map engine, poses and cameras, the Metal renderer, export |
+| `Sources/MyriaRender` | palettes, per-face overlays, the map engine, poses and cameras, the Metal renderer, export, paper globes |
 | `Sources/JJApp` | the SwiftUI app |
 | `Sources/JJCommand` | `jj`, the command-line tool |
 | `Sources/JJDataPrep` | `jj-data`, which downloads and prepares the data (`scripts/prepare-data.sh`) |
