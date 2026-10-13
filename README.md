@@ -250,7 +250,7 @@ swift build -c release --product jj
 
 ## Checked against the paper
 
-The tests (`swift test`; 112 Swift Testing tests, over 200 cases with their
+The tests (`swift test`; 119 Swift Testing tests, over 200 cases with their
 arguments) check the geometry,
 the data and each layout's theme, and render maps with Metal to look at
 the pixels:
