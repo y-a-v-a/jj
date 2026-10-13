@@ -64,6 +64,12 @@ van Wijk the flow visualiser), **Day and Night** (cuts that move in real
 time), **Air Corridors** and **Nations**. Waterline and Craters came with
 the other worlds.
 
+Any layout cuts any myriahedron: graticules, geodesic spheres, subdivided
+Platonic solids, or hexagons, the dual of the geodesic sphere (twelve of
+them pentagons). Hexagons are never cut apart, so the seams zigzag:
+
+![Hexagonal myriahedra: Aligned with Continents on 642 cells, Mid-Ocean on 5762](docs/hexagons.jpg)
+
 ## Other worlds
 
 The same layouts that need no Earth data, and two that are new, unfold the
