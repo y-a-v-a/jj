@@ -14,7 +14,7 @@ struct JJCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj",
         abstract: "Myriahedral maps of the Earth, after Jarke J. van Wijk (2008).",
-        subcommands: [Layouts.self, Render.self, Stats.self, Gallery.self, Animate.self, Icon.self])
+        subcommands: [Layouts.self, Render.self, Stats.self, Gallery.self, Animate.self, Icon.self, Probe.self])
 }
 
 /// Options shared by the commands that build a map.
@@ -401,5 +401,31 @@ struct Icon: ParsableCommand {
         ctx.restoreGState()
         try MapExport.png(ctx.makeImage()!).write(to: URL(fileURLWithPath: output))
         print("icon → \(output)")
+    }
+}
+
+struct Probe: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "What lies at a map point (map units).")
+
+    @OptionGroup var map: MapOptions
+
+    @Option var x: Double
+    @Option var y: Double
+
+    func run() throws {
+        let state = try map.build(try map.engine())
+        let b = state.projection.bounds
+        print(String(format: "bounds x %.3f…%.3f, y %.3f…%.3f", b.minX, b.maxX, b.minY, b.maxY))
+        if let (face, p) = state.location(atMapPoint: Vec2(x, y)) {
+            print("face \(face) at \(p)")
+        } else {
+            print("no face at (\(x), \(y))")
+            // Nearest face centroid, for orientation.
+            let nearest = (0..<state.mesh.faceCount).min { a, b in
+                (Planar.centroid(state.projection.mapPolygons[a]) - Vec2(x, y)).length < (Planar.centroid(state.projection.mapPolygons[b]) - Vec2(x, y)).length
+            }!
+            let poly = state.projection.mapPolygons[nearest]
+            print("nearest face \(nearest), area \(Planar.signedArea(poly)), polygon \(poly)")
+        }
     }
 }

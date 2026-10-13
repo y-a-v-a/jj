@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var showInspector = true
 
     var body: some View {
@@ -27,6 +29,9 @@ struct ContentView: View {
         .onAppear {
             model.isDark = colorScheme == .dark
             model.start()
+            // For demos and checks: -showSettings YES, -showAbout YES.
+            if UserDefaults.standard.bool(forKey: "showSettings") { openSettings() }
+            if UserDefaults.standard.bool(forKey: "showAbout") { openWindow(id: "about") }
         }
         .onChange(of: colorScheme) {
             model.isDark = colorScheme == .dark
@@ -78,7 +83,7 @@ struct MapArea: View {
                     .allowsHitTesting(false)
                 if let hover = model.hover {
                     HoverCard(info: hover)
-                        .offset(x: min(hover.viewPoint.x + 18, geometry.size.width - 270),
+                        .offset(x: min(hover.viewPoint.x + 18, geometry.size.width - 300),
                                 y: min(hover.viewPoint.y + 18, geometry.size.height - 40 - CGFloat(hover.lines.count) * 18))
                         .allowsHitTesting(false)
                 }
@@ -283,12 +288,12 @@ struct HoverCard: View {
             ForEach(info.lines) { line in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(line.label).font(.caption).foregroundStyle(.secondary).frame(width: 66, alignment: .leading)
-                    Text(line.value).font(.callout).lineLimit(2)
+                    Text(line.value).font(.callout).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .padding(10)
-        .frame(width: 250, alignment: .leading)
+        .frame(width: 280, alignment: .leading)
         .glassBackground(RoundedRectangle(cornerRadius: 10))
     }
 }

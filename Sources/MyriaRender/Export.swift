@@ -31,7 +31,7 @@ public enum MapExport {
         return FrameSettings(style: palette.style(dark: dark), coloring: coloring ?? state.appearance.coloring,
                              layers: layers ?? LayerID.defaults(for: state.appearance), date: date, unfold: unfold, globe: globe,
                              viewport: viewport(for: state, width: Double(width), height: Double(height), unfold: unfold),
-                             pixelScale: 1, lineScale: lineScale)
+                             pixelScale: 1, lineScale: lineScale, sealSlits: state.appearance.sealSlits)
     }
 
     public static func png(_ image: CGImage) throws -> Data {

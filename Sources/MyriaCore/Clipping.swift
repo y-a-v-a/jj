@@ -56,6 +56,19 @@ public enum Planar {
         return true
     }
 
+    /// How far `p` lies outside a convex counter-clockwise polygon (0 inside).
+    public static func distanceOutside(_ convex: [Vec2], _ p: Vec2) -> Double {
+        var worst = 0.0
+        var prev = convex[convex.count - 1]
+        for c in convex {
+            let edge = c - prev
+            let len = edge.length
+            if len > 0 { worst = max(worst, -edge.cross(p - prev) / len) }
+            prev = c
+        }
+        return worst
+    }
+
     /// Sutherland–Hodgman: clips any simple polygon against a convex
     /// counter-clockwise polygon. Concave subjects may gain zero-width
     /// bridges along the clip boundary, which do not change filled area.

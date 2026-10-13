@@ -107,12 +107,25 @@ public struct MyriahedralProjection: Sendable {
     }
 
     /// The globe location shown at map position `q`, if any face covers it.
-    public func inverse(_ q: Vec2) -> (face: Int, point: GeoPoint)? {
-        for f in mapIndex.candidates(q) where Planar.convexContains(mapPolygons[f], q, tolerance: 1e-12) {
+    /// With `slack`, a point in a gap narrower than that (map units) belongs
+    /// to the nearest face, as hairline slits do on screen.
+    public func inverse(_ q: Vec2, slack: Double = 0) -> (face: Int, point: GeoPoint)? {
+        func location(_ f: Int) -> (face: Int, point: GeoPoint) {
             let local = unfolding.transforms[f].inverse.apply(q)
             return (f, GeoPoint(mesh.frames[f].spherePoint(local)))
         }
-        return nil
+        for f in mapIndex.candidates(q) where Planar.convexContains(mapPolygons[f], q, tolerance: 1e-12) {
+            return location(f)
+        }
+        guard slack > 0 else { return nil }
+        var best: (face: Int, distance: Double)?
+        for probe in [Vec2(slack, 0), Vec2(-slack, 0), Vec2(0, slack), Vec2(0, -slack), .zero] {
+            for f in mapIndex.candidates(q + probe) {
+                let d = Planar.distanceOutside(mapPolygons[f], q)
+                if d <= slack, d < best?.distance ?? .infinity { best = (f, d) }
+            }
+        }
+        return best.map { location($0.face) }
     }
 
     /// Faces lying (partly) on top of another face: their centroid falls

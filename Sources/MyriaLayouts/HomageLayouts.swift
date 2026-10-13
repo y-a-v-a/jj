@@ -95,7 +95,7 @@ public struct GraticularLayout: Layout {
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
-        LayoutAppearance(coloring: .landSea, showGraticule: true)
+        LayoutAppearance(coloring: .landSea, showGraticule: true, sealSlits: false)
     }
 }
 
@@ -154,7 +154,7 @@ public struct PlatonicLayout: Layout {
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
-        LayoutAppearance(coloring: .landSea, showGraticule: true)
+        LayoutAppearance(coloring: .landSea, showGraticule: true, sealSlits: false)
     }
 }
 
@@ -284,7 +284,7 @@ public struct SubdivisionLayout: Layout {
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
-        LayoutAppearance(coloring: .landSea, showGraticule: true)
+        LayoutAppearance(coloring: .landSea, showGraticule: true, sealSlits: false)
     }
 }
 
@@ -367,7 +367,7 @@ public struct GeoAlignedLayout: Layout {
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
-        LayoutAppearance(coloring: .landSea, showGraticule: true)
+        LayoutAppearance(coloring: .landSea, showGraticule: true, sealSlits: false)
     }
 }
 
@@ -403,6 +403,6 @@ public struct PointOfViewLayout: Layout {
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
-        LayoutAppearance(coloring: .landSea, showGraticule: false)
+        LayoutAppearance(coloring: .landSea, showGraticule: false, sealSlits: false)
     }
 }

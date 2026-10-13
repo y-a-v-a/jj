@@ -515,8 +515,9 @@ final class AppModel {
 
     // MARK: Hover
 
-    func hover(at q: Vec2, viewPoint: CGPoint) {
-        guard let state, unfold >= 1, let (face, location) = state.location(atMapPoint: q) else {
+    /// - Parameter slack: map units of gap still counted as the face beside it.
+    func hover(at q: Vec2, viewPoint: CGPoint, slack: Double = 0) {
+        guard let state, unfold >= 1, let (face, location) = state.location(atMapPoint: q, slack: slack) else {
             hover = nil
             return
         }

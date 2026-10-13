@@ -104,14 +104,30 @@ final class MapMTKView: MTKView, MTKViewDelegate {
             style: model.style, coloring: model.coloring, layers: layers, date: model.date, unfold: unfold,
             globe: model.globe, viewport: viewport, pixelScale: drawableSize.width / max(bounds.width, 1),
             lineScale: model.lineWeight, graticuleStep: model.graticuleStep,
-            highlightGroups: model.selectedGroup.map { [$0] } ?? [], mapLines: particles.lines, sealSlits: model.sealSlits)
+            highlightGroups: model.selectedGroup.map { [$0] } ?? [], mapLines: particles.lines,
+            sealSlits: model.sealSlits && state.appearance.sealSlits)
         if case .groups = settings.coloring { settings.highlightGroups = [] }
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         renderer.encode(state, settings: settings, into: encoder, drawableSize: drawableSize)
         encoder.endEncoding()
+        simulateHoverOnce(unfold: unfold)
         buffer.present(drawable)
         buffer.commit()
         isPaused = !(model.isAnimating || particles.isActive)
+    }
+
+    private var simulatedHover = false
+
+    /// For demos and checks: -hover 600,400 shows the hover card there.
+    private func simulateHoverOnce(unfold: Double) {
+        guard !simulatedHover, unfold >= 1, model.transition == nil, model.foldAnimation == nil,
+              let spec = UserDefaults.standard.string(forKey: "hover") else { return }
+        let parts = spec.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2, let q = mapPoint(NSPoint(x: parts[0], y: parts[1])) else { return }
+        simulatedHover = true
+        DispatchQueue.main.async {
+            self.model.hover(at: q, viewPoint: CGPoint(x: parts[0], y: parts[1]), slack: self.pixelSlack)
+        }
     }
 
     private func windVariant(_ state: MapState) -> String {
@@ -128,6 +144,11 @@ final class MapMTKView: MTKView, MTKViewDelegate {
     }
 
     private var flat: Bool { model.unfold >= 1 && model.transition == nil }
+
+    /// Two points of slack in map units, so hairline slits don't interrupt hovering and clicking.
+    private var pixelSlack: Double {
+        (MapGeometry.mapViewport(model, size: bounds.size)?.scale).map { 2 / $0 } ?? 0
+    }
 
     private func mapPoint(_ p: NSPoint) -> Vec2? {
         MapGeometry.mapViewport(model, size: bounds.size)?.toMap(Vec2(p.x, p.y))
@@ -215,7 +236,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
             recenter(on: location)
             return
         }
-        guard let (face, _) = state.location(atMapPoint: q), let groups = state.cut.faceGroups, groups[face] >= 0 else {
+        guard let (face, _) = state.location(atMapPoint: q, slack: pixelSlack), let groups = state.cut.faceGroups, groups[face] >= 0 else {
             model.selectedGroup = nil
             return
         }
@@ -239,7 +260,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         let p = viewPoint(event)
         lastPointer = p
         if flat, let q = mapPoint(p) {
-            model.hover(at: q, viewPoint: CGPoint(x: p.x, y: p.y))
+            model.hover(at: q, viewPoint: CGPoint(x: p.x, y: p.y), slack: pixelSlack)
         } else if let g = globePoint(p) {
             model.hoverGlobe(at: g, viewPoint: CGPoint(x: p.x, y: p.y))
         } else {

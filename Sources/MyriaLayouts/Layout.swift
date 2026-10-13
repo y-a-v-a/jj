@@ -102,9 +102,14 @@ public struct LayoutAppearance: Sendable, Hashable {
     public var showFlights: Bool
     public var showNight: Bool
     public var showWind: Bool
+    /// Close slits narrower than a pixel. Van Wijk's own maps keep them:
+    /// "the distortion is shown via the transparency of the map".
+    public var sealSlits: Bool
 
     public init(coloring: Coloring = .landSea, lines: [DatasetID] = [], showGraticule: Bool = true,
-                showCities: Bool = false, showFlights: Bool = false, showNight: Bool = false, showWind: Bool = false) {
+                showCities: Bool = false, showFlights: Bool = false, showNight: Bool = false, showWind: Bool = false,
+                sealSlits: Bool = true) {
+        self.sealSlits = sealSlits
         self.coloring = coloring
         self.lines = lines
         self.showGraticule = showGraticule

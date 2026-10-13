@@ -100,7 +100,7 @@ struct AboutView: View {
                     .resizable().frame(width: 72, height: 72)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("JJ").font(.largeTitle.weight(.semibold))
-                    Text("Myriahedral maps of the Earth").font(.title3).foregroundStyle(.secondary)
+                    Text("Myriahedral maps of the Earth, the Moon and Mars").font(.title3).foregroundStyle(.secondary)
                 }
             }
             Text("A homage to Jarke J. van Wijk")
@@ -114,8 +114,9 @@ struct AboutView: View {
                 the distortion every other map hides.
 
                 JJ — for Jarke Jan — unfolds the Earth along its coastlines, rivers, plates, timezones, borders, \
-                crowds, air routes, winds, rain and the line between day and night, and redraws the figures of the \
-                paper on today's GPUs, at sixty frames a second.
+                crowds, air routes, winds, rain and the line between day and night; unfolds the Moon and Mars along \
+                their craters and the shores of vanished seas; and redraws the figures of the paper on today's GPUs, \
+                at sixty frames a second.
                 """)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 3) {
@@ -125,7 +126,9 @@ struct AboutView: View {
             }
             .font(.callout)
             Divider()
-            Text(CelestialBody.earth.datasets.map(\.attribution).joined(separator: " · "))
+            Text(CelestialBody.all.flatMap { $0.datasets.map(\.attribution) }.reduce(into: [String]()) { list, a in
+                if !list.contains(a) { list.append(a) }
+            }.joined(separator: " · "))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

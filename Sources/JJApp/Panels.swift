@@ -291,7 +291,7 @@ struct ExportMenu: View {
         var settings = MapExport.settings(for: state, palette: model.palette, dark: model.isDark, width: width, height: height,
                                           coloring: model.coloring, layers: model.layers, date: model.date, unfold: unfold,
                                           globe: model.globe)
-        settings.sealSlits = model.sealSlits
+        settings.sealSlits = model.sealSlits && state.appearance.sealSlits
         settings.lineScale *= model.lineWeight
         settings.graticuleStep = model.graticuleStep
         return try renderer.image(state, settings: settings, width: width, height: height)

@@ -36,11 +36,14 @@ public final class MapState: Sendable {
     public var mesh: MyriahedralMesh { context.mesh }
     public var data: BodyData { context.data }
 
-    /// Pieces of the map: faces joined by hinges.
+    /// Pieces of the map: faces of one group (region, land mass) joined
+    /// by hinges. Without groups the map is one piece.
     public var pieceCount: Int {
         context.cached("pieces:\(id)") {
+            guard let groups = cut.faceGroups else { return 1 }
             var sets = UnionFind(count: mesh.faceCount)
-            for (e, edge) in mesh.topology.edges.enumerated() where !projection.unfolding.isCut[e] {
+            for (e, edge) in mesh.topology.edges.enumerated()
+            where !projection.unfolding.isCut[e] && groups[edge.leftFace] == groups[edge.rightFace] {
                 sets.union(edge.leftFace, edge.rightFace)
             }
             return sets.componentCount
@@ -48,8 +51,9 @@ public final class MapState: Sendable {
     }
 
     /// The location and face at a map point, if any face covers it.
-    public func location(atMapPoint q: Vec2) -> (face: Int, location: GeoPoint)? {
-        projection.inverse(q).map { ($0.face, $0.point) }
+    /// - Parameter slack: gaps narrower than this (map units) count as covered.
+    public func location(atMapPoint q: Vec2, slack: Double = 0) -> (face: Int, location: GeoPoint)? {
+        projection.inverse(q, slack: slack).map { ($0.face, $0.point) }
     }
 }
 
