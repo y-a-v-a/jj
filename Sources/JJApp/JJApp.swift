@@ -26,6 +26,11 @@ struct JJApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About JJ") { openWindow(id: "about") }
             }
+            CommandGroup(replacing: .printItem) {
+                Button("Print a Paper Globe…") { model.isShowingPaper = true }
+                    .keyboardShortcut("p", modifiers: .command)
+                    .disabled(model.state == nil)
+            }
             CommandGroup(after: .toolbar) {
                 Button("Zoom In") { zoom(1.6) }.keyboardShortcut("+", modifiers: .command)
                 Button("Zoom In") { zoom(1.6) }.keyboardShortcut("=", modifiers: .command)
@@ -42,6 +47,12 @@ struct JJApp: App {
                 Toggle("Tissot's Indicatrices", isOn: model.layerBinding(.tissot)).keyboardShortcut("t", modifiers: [.command, .option])
                 Toggle("Labels", isOn: model.layerBinding(.labels)).keyboardShortcut("b", modifiers: [.command, .option])
                 Divider()
+            }
+            CommandMenu("World") {
+                ForEach(Array(CelestialBody.all.enumerated()), id: \.element.id) { index, world in
+                    Toggle(world.name, isOn: Binding(get: { model.bodyID == world.id }, set: { if $0 { model.bodyID = world.id } }))
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                }
             }
             CommandMenu("Layout") {
                 Button("Next Layout") { model.selectNext(1) }.keyboardShortcut("]", modifiers: .command)

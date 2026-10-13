@@ -278,9 +278,8 @@ struct ColoringPicker: View {
 // MARK: - Export
 
 struct ExportMenu: View {
-    let model: AppModel
+    @Bindable var model: AppModel
     @State private var isExporting = false
-    @State private var showPaper = false
 
     var body: some View {
         Menu {
@@ -289,7 +288,7 @@ struct ExportMenu: View {
             Button("Unfolding Animation (GIF)…") { exportGIF() }
             Button("Unfolding Film (4K)…") { exportFilm() }
             Divider()
-            Button("Paper Globe (PDF)…") { showPaper = true }
+            Button("Paper Globe (PDF)…") { model.isShowingPaper = true }
             Divider()
             Button("Copy Image") { copy() }
         } label: {
@@ -297,12 +296,12 @@ struct ExportMenu: View {
         }
         .help("Export the map")
         .disabled(model.state == nil || isExporting)
-        .sheet(isPresented: $showPaper) { PaperSheet(model: model) }
+        .sheet(isPresented: $model.isShowingPaper) { PaperSheet(model: model) }
         .task {
             // For demos and checks: -showPaper YES.
             if UserDefaults.standard.bool(forKey: "showPaper") {
                 try? await Task.sleep(for: .seconds(2))
-                showPaper = true
+                model.isShowingPaper = true
             }
         }
     }

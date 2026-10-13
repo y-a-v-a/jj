@@ -612,6 +612,8 @@ final class AppModel {
     // MARK: Search
 
     var searchText = ""
+    /// The paper globe sheet (Export menu, ⌘P).
+    var isShowingPaper = false
     /// The place found last, and when, for the marker's pulse.
     @ObservationIgnored private(set) var found: (location: GeoPoint, time: CFTimeInterval)?
 
