@@ -131,7 +131,8 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         guard let viewport = MapGeometry.viewport(model, size: bounds.size, unfold: unfold) else { return }
         let layers = model.layers
         // Wind particles drift over the flat map.
-        let windOn = layers.contains(.wind) && unfold >= 1 && state.data.body.has(.wind)
+        // (Not over a closed map: the particles follow the open one.)
+        let windOn = layers.contains(.wind) && unfold >= 1 && state.data.body.has(.wind) && !model.showsClosedGaps
         particles.update(state: state, active: windOn, variant: windVariant(state))
         var settings = FrameSettings(
             style: model.style, coloring: model.coloring, layers: layers, date: model.date, unfold: unfold,

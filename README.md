@@ -129,9 +129,10 @@ mesh, animated: each round zips together the two copies of every vertex
 that have come within an edge length of each other (at first at the
 narrow ends of the gaps), then the map relaxes as an elastic sheet, every
 face as close to its own shape as the closed seams allow
-(as-rigid-as-possible, solved by conjugate gradients). On 11 520 faces
-it takes about 0.3 s and 15 to 20 rounds; some 96 % of the seams close and the
-rest become the outline. The faces stay triangles, so the renderer only
+(as-rigid-as-possible, solved in parallel by conjugate gradients). On
+11 520 faces it takes about 0.1 s and 15 to 20 rounds, on 81 920 about
+2 s; some 95 % of the seams close and the rest become the outline. (Maps
+of more than 100 000 faces stay open.) The faces stay triangles, so the renderer only
 swaps each face's rigid pose for an affine one; hover, search and the
 graticule follow. Films end by closing the gaps when they are closed in
 the app (or with `jj animate --close`).

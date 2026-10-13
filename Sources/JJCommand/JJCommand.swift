@@ -176,13 +176,13 @@ struct Render: ParsableCommand {
         }
         let built = Date()
         let renderer = try MapRenderer()
-        let bounds = state.bounds(closing: close)
+        let bounds = state.bounds(closing: unfold >= 1 ? close : 0)
         let h = height ?? (unfold < 1 ? width : Int(((Double(width) - 32) * bounds.height / bounds.width + 32).rounded()))
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
         var settings = try MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h,
                                               coloring: parseColoring(coloring), layers: parseLayers(layers, state: state),
                                               date: map.resolvedDate(), unfold: unfold)
-        if close > 0 {
+        if close > 0, unfold >= 1 {
             settings.closing = close
             settings.viewport = Viewport(bounds: bounds, size: Vec2(Double(width), Double(h)))
         }

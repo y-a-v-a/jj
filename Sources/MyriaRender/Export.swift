@@ -124,28 +124,44 @@ public enum MapExport {
         writer.add(input)
         guard writer.startWriting() else { throw writer.error ?? RenderError.allocation("movie writer") }
         writer.startSession(atSourceTime: .zero)
-        for k in 0..<count {
-            let image = try frame(k)
-            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.002) }
-            guard let pool = adaptor.pixelBufferPool else { throw writer.error ?? RenderError.allocation("pixel buffers") }
-            var buffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-            guard let buffer else { throw RenderError.allocation("pixel buffer") }
-            CVPixelBufferLockBaseAddress(buffer, [])
-            let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: width, height: height, bitsPerComponent: 8,
-                                bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-            ctx?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            CVPixelBufferUnlockBaseAddress(buffer, [])
-            guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(k), timescale: CMTimeScale(fps))) else {
-                throw writer.error ?? RenderError.allocation("movie frame \(k)")
-            }
+        do {
+            try writeFrames()
+        } catch {
+            // No half-written film left behind.
+            writer.cancelWriting()
+            try? FileManager.default.removeItem(at: url)
+            throw error
         }
+        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(count), timescale: CMTimeScale(fps)))
         input.markAsFinished()
         let done = DispatchSemaphore(value: 0)
         writer.finishWriting { done.signal() }
         done.wait()
         if writer.status != .completed { throw writer.error ?? RenderError.allocation("movie") }
+
+        func writeFrames() throws {
+            for k in 0..<count {
+                let image = try frame(k)
+                while !input.isReadyForMoreMediaData {
+                    // A failed writer is never ready again.
+                    guard writer.status == .writing else { throw writer.error ?? RenderError.allocation("movie writer") }
+                    Thread.sleep(forTimeInterval: 0.002)
+                }
+                guard let pool = adaptor.pixelBufferPool else { throw writer.error ?? RenderError.allocation("pixel buffers") }
+                var buffer: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+                guard let buffer else { throw RenderError.allocation("pixel buffer") }
+                CVPixelBufferLockBaseAddress(buffer, [])
+                let ctx = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: width, height: height, bitsPerComponent: 8,
+                                    bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+                ctx?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                CVPixelBufferUnlockBaseAddress(buffer, [])
+                guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(k), timescale: CMTimeScale(fps))) else {
+                    throw writer.error ?? RenderError.allocation("movie frame \(k)")
+                }
+            }
+        }
     }
 
     /// Writes frames as an animated GIF.

@@ -25,6 +25,8 @@ public struct ClosedGaps: Sendable {
     /// Seams that stay open: the closed map's outline.
     public let openSeams: [Int]
     public let bounds: Rect2
+    /// The closed faces by position, for finding the face under a point.
+    let index: FaceGrid
 
     /// - Parameters:
     ///   - threshold: how close corresponding vertices must come to be
@@ -109,9 +111,12 @@ public struct ClosedGaps: Sendable {
             round += 1
             let (oldX, oldIDs) = (x, ids)
             compact(oldX, oldIDs)
-            // Then let the sheet relax.
-            Self.relax(&x, ids: ids, rest: rest, weights: weights, iterations: 3)
+            // Then let the sheet relax a little (less on big meshes, where
+            // rounds are many); it settles at the end.
+            Self.relax(&x, ids: ids, rest: rest, weights: weights, iterations: F > 30_000 ? 1 : 2,
+                       solverSteps: F > 30_000 ? 15 : 30)
         }
+        if round > 0 { Self.relax(&x, ids: ids, rest: rest, weights: weights, iterations: 8, solverSteps: 40) }
         open = unfolded
         rounds = round
         joined = pairsJoined
@@ -122,68 +127,91 @@ public struct ClosedGaps: Sendable {
         var b = Rect2.empty
         for p in x { b.include(p) }
         bounds = b
+        index = FaceGrid(polygons: closed)
     }
 
     /// As-rigid-as-possible relaxation (Sorkine and Alexa): alternately fit
     /// each face's best rotation to its current shape, and move the vertices
     /// to where those rotated faces want them (a sparse solve by conjugate
     /// gradients, warm-started where they are).
-    static func relax(_ x: inout [Vec2], ids: [Int], rest: [[Vec2]], weights: [(Double, Double, Double)], iterations: Int) {
+    static func relax(_ x: inout [Vec2], ids: [Int], rest: [[Vec2]], weights: [(Double, Double, Double)],
+                      iterations: Int, solverSteps: Int) {
         let n = x.count, F = rest.count
         // Every face's three edges as (i, j, weight, rest i − rest j).
         struct Spring { let i: Int, j: Int, w: Double, r: Vec2 }
-        var springs: [Spring] = []
-        springs.reserveCapacity(3 * F)
+        var springList: [Spring] = []
+        springList.reserveCapacity(3 * F)
         for f in 0..<F {
             let w = weights[f], r = rest[f]
             let c0 = ids[3 * f], c1 = ids[3 * f + 1], c2 = ids[3 * f + 2]
-            springs.append(Spring(i: c1, j: c2, w: w.0, r: r[1] - r[2]))
-            springs.append(Spring(i: c2, j: c0, w: w.1, r: r[2] - r[0]))
-            springs.append(Spring(i: c0, j: c1, w: w.2, r: r[0] - r[1]))
+            springList.append(Spring(i: c1, j: c2, w: w.0, r: r[1] - r[2]))
+            springList.append(Spring(i: c2, j: c0, w: w.1, r: r[2] - r[0]))
+            springList.append(Spring(i: c0, j: c1, w: w.2, r: r[0] - r[1]))
         }
-        // Diagonal of the cotangent Laplacian, plus a soft anchor to where
-        // the vertices are, which keeps the solve definite and the map put.
-        var diagonal = [Double](repeating: 0, count: n)
-        for s in springs {
-            diagonal[s.i] += s.w
-            diagonal[s.j] += s.w
+        // The cotangent Laplacian by rows (each vertex's neighbours), plus a
+        // soft anchor to where the vertices are, which keeps the solve
+        // definite and the map in place.
+        var offsets = [Int](repeating: 0, count: n + 1)
+        for s in springList {
+            offsets[s.i + 1] += 1
+            offsets[s.j + 1] += 1
         }
-        let anchor = 1e-3 * diagonal.reduce(0, +) / Double(max(n, 1))
-        for i in 0..<n { diagonal[i] += anchor }
+        for i in 0..<n { offsets[i + 1] += offsets[i] }
+        var neighbours = [Int](repeating: 0, count: offsets[n]), weightList = [Double](repeating: 0, count: offsets[n])
+        var fill = offsets
+        for s in springList {
+            neighbours[fill[s.i]] = s.j; weightList[fill[s.i]] = s.w; fill[s.i] += 1
+            neighbours[fill[s.j]] = s.i; weightList[fill[s.j]] = s.w; fill[s.j] += 1
+        }
+        var sums = (0..<n).map { i in (offsets[i]..<offsets[i + 1]).reduce(0.0) { $0 + weightList[$1] } }
+        let anchor = 1e-3 * sums.reduce(0, +) / Double(max(n, 1))
+        for i in 0..<n { sums[i] += anchor }
+        // Frozen for the concurrent loops.
+        let springs = springList, start = offsets, neighbour = neighbours, weight = weightList, diagonal = sums
+        let chunk = max(256, n / (ProcessInfo.processInfo.activeProcessorCount * 4))
+        let chunks = (n + chunk - 1) / chunk
 
-        var out = [Vec2](repeating: .zero, count: n)
-        func apply(_ v: [Vec2]) {
-            for i in 0..<n { out[i] = v[i] * anchor }
-            for s in springs {
-                let d = (v[s.i] - v[s.j]) * s.w
-                out[s.i] = out[s.i] + d
-                out[s.j] = out[s.j] - d
+        /// out = L v, by rows, in parallel.
+        func apply(_ v: [Vec2], into out: inout [Vec2]) {
+            v.withUnsafeBufferPointer { v in
+                out.withUnsafeMutableBufferPointer { o in
+                    nonisolated(unsafe) let (v, o) = (v, o)
+                    DispatchQueue.concurrentPerform(iterations: chunks) { c in
+                        for i in (c * chunk)..<min(n, (c + 1) * chunk) {
+                            var acc = v[i] * diagonal[i]
+                            for k in start[i]..<start[i + 1] { acc = acc - v[neighbour[k]] * weight[k] }
+                            o[i] = acc
+                        }
+                    }
+                }
             }
         }
 
         var rhs = [Vec2](repeating: .zero, count: n)
-        var residual = rhs, z = rhs, p = rhs
+        var out = rhs, residual = rhs, z = rhs, p = rhs
         for _ in 0..<iterations {
-            // Local step: each face's best rotation, and where it wants its corners.
-            for i in 0..<n { rhs[i] = x[i] * anchor }
-            for f in 0..<F {
-                let s0 = springs[3 * f], s1 = springs[3 * f + 1], s2 = springs[3 * f + 2]
+            // Local step: each face's best rotation…
+            let current = x
+            let rotations: [(Double, Double)] = parallelMap(F) { f in
                 var m00 = 0.0, m01 = 0.0, m10 = 0.0, m11 = 0.0
-                for s in [s0, s1, s2] {
-                    let ex = x[s.i] - x[s.j]
+                for s in springs[(3 * f)..<(3 * f + 3)] {
+                    let ex = current[s.i] - current[s.j]
                     m00 += s.w * s.r.x * ex.x; m01 += s.w * s.r.x * ex.y
                     m10 += s.w * s.r.y * ex.x; m11 += s.w * s.r.y * ex.y
                 }
                 let angle = atan2(m01 - m10, m00 + m11)
-                let cs = cos(angle), sn = sin(angle)
-                for s in [s0, s1, s2] {
-                    let d = Vec2(cs * s.r.x - sn * s.r.y, sn * s.r.x + cs * s.r.y) * s.w
-                    rhs[s.i] = rhs[s.i] + d
-                    rhs[s.j] = rhs[s.j] - d
-                }
+                return (cos(angle), sin(angle))
+            }
+            // …and where the rotated faces want their corners.
+            for i in 0..<n { rhs[i] = x[i] * anchor }
+            for (k, s) in springs.enumerated() {
+                let (cs, sn) = rotations[k / 3]
+                let d = Vec2(cs * s.r.x - sn * s.r.y, sn * s.r.x + cs * s.r.y) * s.w
+                rhs[s.i] = rhs[s.i] + d
+                rhs[s.j] = rhs[s.j] - d
             }
             // Global step: L x = rhs, by Jacobi-preconditioned conjugate gradients.
-            apply(x)
+            apply(x, into: &out)
             var rz = 0.0, scale = 0.0
             for i in 0..<n {
                 residual[i] = rhs[i] - out[i]
@@ -192,10 +220,10 @@ public struct ClosedGaps: Sendable {
                 rz += residual[i].dot(z[i])
                 scale += rhs[i].lengthSquared
             }
-            let tolerance = 1e-14 * max(scale, 1e-300)
-            for _ in 0..<40 {
+            let tolerance = 1e-12 * max(scale, 1e-300)
+            for _ in 0..<solverSteps {
                 guard rz > tolerance else { break }
-                apply(p)
+                apply(p, into: &out)
                 var pap = 0.0
                 for i in 0..<n { pap += p[i].dot(out[i]) }
                 let alpha = rz / max(pap, 1e-300)
@@ -238,6 +266,7 @@ public struct ClosedGaps: Sendable {
     /// The bounds of the map with the gaps closed by `amount`.
     public func bounds(amount: Double, openBounds: Rect2) -> Rect2 {
         guard amount > 0 else { return openBounds }
+        if amount >= 1 { return bounds }
         var b = Rect2.empty
         for f in open.indices { for p in corners(of: f, amount: amount) { b.include(p) } }
         return b
@@ -246,7 +275,17 @@ public struct ClosedGaps: Sendable {
     /// The face under map point `q` with the gaps closed by `amount`, and
     /// the point in its local coordinates.
     public func face(at q: Vec2, amount: Double, frames: [FaceFrame]) -> (face: Int, local: Vec2)? {
-        for f in open.indices {
+        // Closed, the index finds the candidates; while moving, small maps
+        // are searched face by face and large ones not at all.
+        let candidates: [Int]
+        if amount >= 1 {
+            candidates = index.candidates(Rect2(minX: q.x, minY: q.y, maxX: q.x, maxY: q.y))
+        } else if open.count <= 20_000 {
+            candidates = Array(open.indices)
+        } else {
+            return nil
+        }
+        for f in candidates {
             let c = corners(of: f, amount: amount)
             let s0 = (c[1] - c[0]).cross(q - c[0]), s1 = (c[2] - c[1]).cross(q - c[1]), s2 = (c[0] - c[2]).cross(q - c[2])
             guard (s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0) else { continue }

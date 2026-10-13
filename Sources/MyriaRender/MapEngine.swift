@@ -55,8 +55,11 @@ public final class MapState: Sendable {
     ///   - slack: gaps narrower than this (map units) count as covered.
     ///   - closing: how far the gaps are closed (see `closedGaps`).
     public func location(atMapPoint q: Vec2, slack: Double = 0, closing: Double = 0) -> (face: Int, location: GeoPoint)? {
-        if closing > 0, let gaps = closedGapsIfReady, let hit = gaps.face(at: q, amount: closing, frames: mesh.frames) {
-            return (hit.face, GeoPoint(mesh.frames[hit.face].spherePoint(hit.local)))
+        if closing > 0, let gaps = closedGapsIfReady {
+            // The closed map only: the open one lies elsewhere.
+            return gaps.face(at: q, amount: closing, frames: mesh.frames).map {
+                ($0.face, GeoPoint(mesh.frames[$0.face].spherePoint($0.local)))
+            }
         }
         return projection.inverse(q, slack: slack).map { ($0.face, $0.point) }
     }
@@ -73,8 +76,13 @@ public final class MapState: Sendable {
         context.isCached("closedGaps:\(id)") ? closedGaps : nil
     }
 
-    /// Whether gaps can be closed: every face a triangle.
-    public var canCloseGaps: Bool { mesh.polyhedron.faces.allSatisfy { $0.count == 3 } }
+    /// The most faces whose gaps are closed (a few seconds' work).
+    public static let maximumClosingFaces = 100_000
+
+    /// Whether gaps can be closed: every face a triangle, and not too many.
+    public var canCloseGaps: Bool {
+        mesh.faceCount <= Self.maximumClosingFaces && mesh.polyhedron.faces.allSatisfy { $0.count == 3 }
+    }
 
     /// Where a place lies on the flat map with the gaps closed by `closing`.
     public func mapPoint(_ p: GeoPoint, closing: Double = 0) -> Vec2 {

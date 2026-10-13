@@ -194,7 +194,12 @@ final class AppModel {
     /// animations it is published in steps, so views that only show it
     /// don't redraw every frame; `liveUnfold` is the exact value drawn.
     var unfold: Double = 1 {
-        didSet { if !animating { liveUnfold = unfold } }
+        didSet {
+            guard !animating else { return }
+            liveUnfold = unfold
+            // Folding by hand opens a closed map at once.
+            if unfold < 1, gapsClosed || liveClosing > 0 || closingAnimation != nil { resetGaps() }
+        }
     }
     @ObservationIgnored private(set) var liveUnfold: Double = 1
     @ObservationIgnored private var animating = false
@@ -356,7 +361,8 @@ final class AppModel {
     ///   unfold the new one from it. A rebuild during a transition joins it.
     func rebuild(transition: Bool = false) {
         buildGeneration += 1
-        if liveClosing > 0 || closingAnimation != nil { resetGaps() }
+        // A new layout starts open; a re-cut of this one closes again.
+        if transition { resetGaps() }
         pending = nil
         let sameWorld = state != nil && state?.data.body == body
         if sameWorld && (transition || self.transition != nil) {
@@ -459,7 +465,7 @@ final class AppModel {
     private func install(_ new: MapState, resetCamera: Bool) {
         let first = state == nil
         state = new
-        resetGaps()
+        closeAgain(new)
         labels = []
         if resetCamera {
             camera = MapCamera()
@@ -595,7 +601,10 @@ final class AppModel {
     /// The switch: whether the flat map's gaps are to be closed.
     private(set) var gapsClosed = false
     /// While the closed map is being computed.
-    private(set) var isComputingGaps = false
+    /// The map whose closed form is being computed.
+    private var computingGaps: UUID?
+    /// While the closed map is being computed.
+    var isComputingGaps: Bool { computingGaps != nil && computingGaps == state?.id }
     /// How far the gaps are closed, as drawn.
     @ObservationIgnored private(set) var liveClosing = 0.0
     /// The closing (or opening) under way; observed, so the view wakes.
@@ -626,11 +635,15 @@ final class AppModel {
             if liveUnfold >= 1 { animateClosing(to: 1) }
             return
         }
-        isComputingGaps = true
+        computingGaps = state.id
         Task {
             await Task.detached(priority: .userInitiated) { _ = state.closedGaps }.value
-            isComputingGaps = false
-            guard self.state === state, gapsClosed, liveUnfold >= 1 else { return }
+            if computingGaps == state.id { computingGaps = nil }
+            guard self.state === state, gapsClosed else { return }
+            guard liveUnfold >= 1 else {
+                gapsClosed = false
+                return
+            }
             animateClosing(to: 1)
         }
     }
@@ -644,6 +657,35 @@ final class AppModel {
         gapsClosed = false
         liveClosing = 0
         closingAnimation = nil
+    }
+
+    /// A re-cut map (a parameter, the clock) starts open; if its gaps were
+    /// closed, it closes again, without animation, once its closed form is
+    /// ready.
+    private func closeAgain(_ new: MapState) {
+        liveClosing = 0
+        closingAnimation = nil
+        guard gapsClosed else { return }
+        guard new.canCloseGaps else {
+            gapsClosed = false
+            return
+        }
+        func snapClosed() {
+            liveClosing = 1
+            // An instant animation, observed, so the view redraws.
+            closingAnimation = ClosingAnimation(start: CACurrentMediaTime(), from: 1, to: 1)
+        }
+        if new.closedGapsIfReady != nil {
+            snapClosed()
+            return
+        }
+        computingGaps = new.id
+        Task {
+            await Task.detached(priority: .userInitiated) { _ = new.closedGaps }.value
+            if computingGaps == new.id { computingGaps = nil }
+            guard self.state === new, gapsClosed, liveUnfold >= 1 else { return }
+            snapClosed()
+        }
     }
 
     private func swapInPending() {
@@ -677,6 +719,8 @@ final class AppModel {
             return
         }
         if liveUnfold >= 1, let state { globe = Self.facingRoot(state) }
+        // Folded, the gaps are open (even if their closing was still being computed).
+        if liveUnfold >= 0.5 { gapsClosed = false }
         foldAnimation = Transition(phase: .folding, start: CACurrentMediaTime(), from: liveUnfold,
                                    duration: Self.unfoldDuration * (liveUnfold >= 0.5 ? liveUnfold : 1 - liveUnfold))
         animating = true

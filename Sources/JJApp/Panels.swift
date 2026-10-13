@@ -325,9 +325,11 @@ struct ExportMenu: View {
         let settings: FrameSettings
     }
 
-    @MainActor private func job(width: Int, unfold: Double = 1) -> Job? {
+    /// - Parameter closed: draw the map with its gaps as closed as shown.
+    @MainActor private func job(width: Int, unfold: Double = 1, closed: Bool = true) -> Job? {
         guard let state = model.state else { return nil }
-        let height = MapExport.height(for: state, width: width, closing: unfold >= 1 ? model.liveClosing : 0)
+        let closing = unfold >= 1 && closed ? model.liveClosing : 0
+        let height = MapExport.height(for: state, width: width, closing: closing)
         var settings = MapExport.settings(for: state, palette: model.palette, dark: model.isDark, width: width, height: height,
                                           coloring: model.coloring, layers: model.layers, date: model.date, unfold: unfold,
                                           globe: model.globe)
@@ -335,7 +337,7 @@ struct ExportMenu: View {
         settings.lineScale *= model.lineWeight
         settings.graticuleStep = model.graticuleStep
         // The map as shown: with its gaps closed, if they are.
-        settings.closing = unfold >= 1 ? model.liveClosing : 0
+        settings.closing = closing
         return Job(state: state, settings: settings)
     }
 
@@ -382,7 +384,8 @@ struct ExportMenu: View {
         panel.allowedContentTypes = [.gif]
         panel.nameFieldStringValue = "\(model.layoutID)-unfolding.gif"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let jobs = (0..<60).compactMap { job(width: 900, unfold: AppModel.ease(Double($0) / 59)) }
+        // The unfolding only: every frame the same size, the gaps open.
+        let jobs = (0..<60).compactMap { job(width: 900, unfold: AppModel.ease(Double($0) / 59), closed: false) }
         guard !jobs.isEmpty else { return }
         run {
             // One renderer for every frame: the mesh is uploaded once.
