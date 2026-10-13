@@ -90,12 +90,14 @@ struct ContentView: View {
 
 struct MapArea: View {
     @Bindable var model: AppModel
+    /// Frames of the cards floating over the map, which labels keep clear of.
+    @State private var cards: [String: CGRect] = [:]
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 MapView(model: model)
-                LabelLayer(model: model, size: geometry.size)
+                LabelLayer(model: model, size: geometry.size, occluded: Array(cards.values))
                     .allowsHitTesting(false)
                 if let hover = model.hover {
                     HoverCard(info: hover)
@@ -109,17 +111,17 @@ struct MapArea: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                StoryCard(model: model).padding(14)
+                StoryCard(model: model).reportFrame("story", into: $cards).padding(14)
             }
             .overlay(alignment: .bottomLeading) {
                 HStack(alignment: .bottom, spacing: 10) {
-                    FoldControl(model: model)
-                    Legend(model: model)
+                    FoldControl(model: model).reportFrame("fold", into: $cards)
+                    Legend(model: model).reportFrame("legend", into: $cards)
                 }
                 .padding(14)
             }
             .overlay(alignment: .bottomTrailing) {
-                ZoomControls(model: model, size: geometry.size).padding(14)
+                ZoomControls(model: model, size: geometry.size).reportFrame("zoom", into: $cards).padding(14)
             }
             .overlay(alignment: .topTrailing) {
                 if model.isBuilding {
@@ -127,10 +129,25 @@ struct MapArea: View {
                 }
             }
         }
+        .coordinateSpace(.named(MapArea.space))
         .background(Color(rgba: model.style.background))
         .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { top in
             // The map runs under the translucent toolbar but is fitted below it.
             model.viewInsets = (top: top, bottom: 52)
+        }
+    }
+}
+
+extension MapArea {
+    static let space = "mapArea"
+}
+
+private extension View {
+    /// Keeps `frames[key]` up to date with this view's frame in the map area
+    /// (or removes it while the view is empty).
+    func reportFrame(_ key: String, into frames: Binding<[String: CGRect]>) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MapArea.space)) } action: { frame in
+            frames.wrappedValue[key] = frame.isEmpty ? nil : frame
         }
     }
 }
@@ -315,6 +332,8 @@ struct HoverCard: View {
 struct LabelLayer: View {
     let model: AppModel
     let size: CGSize
+    /// Areas covered by cards.
+    var occluded: [CGRect] = []
 
     var body: some View {
         if model.unfold >= 1, model.transition == nil, model.layers.contains(.labels), let viewport = MapGeometry.mapViewport(model, size: size) {
@@ -327,7 +346,7 @@ struct LabelLayer: View {
     private func draw(_ context: inout GraphicsContext, viewport: Viewport) {
         let style = model.style
         let date = model.date
-        var placed: [CGRect] = []
+        var placed = occluded.map { $0.insetBy(dx: -4, dy: -4) }
         for label in model.labels.sorted(by: { $0.room > $1.room }) {
             let roomPx = label.room * viewport.scale
             let q = viewport.toView(label.position)
