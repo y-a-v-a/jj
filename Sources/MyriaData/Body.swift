@@ -130,7 +130,7 @@ public struct FieldDescriptor: Sendable, Identifiable {
 }
 
 /// A celestial body: its size, its datasets and the fields derived from them.
-/// Earth is the one JJ ships with; the Moon or Mars would be another `Body`
+/// The Earth, the Moon, Mars and Venus are bodies; another world is another `Body`
 /// with their own resource folder and catalogue.
 public struct Body: Sendable, Identifiable, Hashable {
     public let id: String
@@ -201,14 +201,22 @@ public final class BodyData: Sendable {
     public static let earth = BodyData(body: .earth)
     public static let moon = BodyData(body: .moon)
     public static let mars = BodyData(body: .mars)
+    public static let venus = BodyData(body: .venus)
+
+    /// Every world's shared data, made once on first use.
+    nonisolated(unsafe) private static var registry: [String: BodyData] = {
+        Dictionary(uniqueKeysWithValues: [earth, moon, mars, venus].map { ($0.body.id, $0) })
+    }()
+    private static let registryLock = NSLock()
 
     /// The shared data of a body.
     public static func of(_ body: Body) -> BodyData {
-        switch body.id {
-        case "moon": .moon
-        case "mars": .mars
-        default: .earth
-        }
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        if let data = registry[body.id] { return data }
+        let data = BodyData(body: body)
+        registry[body.id] = data
+        return data
     }
 
     /// The value for `key`, loading it once.

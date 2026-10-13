@@ -79,7 +79,20 @@ extension Body {
         hasSeas: false, hasSunlight: true)
 
     /// Every body JJ knows, Earth first.
-    public static let all: [Body] = [.earth, .moon, .mars]
+    /// Venus: Magellan radar altimetry and the IAU's named features.
+    public static let venus = Body(
+        id: "venus", name: "Venus", radius: 6051.8, resourceFolder: "Venus",
+        datasets: [
+            DatasetDescriptor(id: .elevation, kind: .grid, file: "elevation.grid", title: "Elevation",
+                              attribution: "Magellan Global Topography 4641 m (USGS Astrogeology, from the Magellan GTDR, NASA PDS)"),
+            DatasetDescriptor(id: .features, kind: .places, file: "features.json", title: "Named features",
+                              attribution: "Gazetteer of Planetary Nomenclature (IAU WGPSN, USGS Astrogeology)"),
+        ],
+        fields: [CommonFields.elevation, CommonFields.highlands, CommonFields.craters],
+        relief: ReliefTint(["#2b130a", "#5c2a12", "#8f4a1c", "#c07a2d", "#e3ad4c", "#f5d98b", "#fff3cf"]),
+        hasSeas: false, hasSunlight: true)
+
+    public static let all: [Body] = [.earth, .moon, .mars, .venus]
 }
 
 /// Fields any body with elevation (and features) has.

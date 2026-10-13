@@ -3,7 +3,7 @@ import MyriaCore
 import MyriaData
 
 /// Every name JJ can find on a world: countries, oceans and cities on Earth,
-/// named craters, maria and mountains on the Moon and Mars.
+/// named craters, maria, mountains and coronae on the other worlds.
 public struct Gazetteer: Sendable {
     public struct Entry: Sendable, Hashable, Identifiable {
         public enum Kind: String, Sendable { case country, ocean, city, feature }

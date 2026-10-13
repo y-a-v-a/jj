@@ -8,10 +8,10 @@ import Foundation
 struct JJData: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj-data",
-        abstract: "Download open datasets and write JJ's compact Earth, Moon and Mars resources.",
+        abstract: "Download open datasets and write JJ's compact Earth, Moon, Mars and Venus resources.",
         subcommands: [
             Rivers.self, Lakes.self, Countries.self, Plates.self, Places.self, Flights.self,
-            Precipitation.self, Wind.self, Elevation.self, MoonData.self, MarsData.self, All.self, Verify.self,
+            Precipitation.self, Wind.self, Elevation.self, MoonData.self, MarsData.self, VenusData.self, All.self, Verify.self,
         ]
     )
 }
@@ -108,6 +108,18 @@ struct MoonData: ParsableCommand {
     }
 }
 
+struct VenusData: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "venus",
+        abstract: "Magellan global topography and IAU named features → Venus/elevation.grid, Venus/features.json")
+    @OptionGroup var options: CommonOptions
+    func run() throws {
+        let ws = try options.workspace()
+        try step("venus elevation") { try PlanetaryData.venusElevation(ws, PlanetaryData.venus) }
+        try step("venus features") { try PlanetaryData.features(ws, PlanetaryData.venus) }
+    }
+}
+
 struct MarsData: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mars",
@@ -117,6 +129,8 @@ struct MarsData: ParsableCommand {
         let ws = try options.workspace()
         try step("mars elevation") { try PlanetaryData.elevation(ws, PlanetaryData.mars) }
         try step("mars features") { try PlanetaryData.features(ws, PlanetaryData.mars) }
+        try step("venus elevation") { try PlanetaryData.venusElevation(ws, PlanetaryData.venus) }
+        try step("venus features") { try PlanetaryData.features(ws, PlanetaryData.venus) }
     }
 }
 

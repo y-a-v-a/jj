@@ -33,7 +33,7 @@ struct HelpView: View {
         Group(title: "Layouts and worlds", symbol: "square.grid.2x2", items: [
             Item(keys: "⌘]  ⌘[", action: "Next and previous layout"),
             Item(keys: "⌘T", action: "Tour every layout, folding between them"),
-            Item(keys: "⌘1  ⌘2  ⌘3", action: "The Earth, the Moon, Mars"),
+            Item(keys: "⌘1 … ⌘4", action: "The Earth, the Moon, Mars, Venus"),
             Item(keys: "⌘F", action: "Find a place: where did it go?"),
         ]),
         Group(title: "Time", symbol: "clock", items: [

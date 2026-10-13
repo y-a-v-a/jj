@@ -100,7 +100,7 @@ struct AboutView: View {
                     .resizable().frame(width: 72, height: 72)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("JJ").font(.largeTitle.weight(.semibold))
-                    Text("Myriahedral maps of the Earth, the Moon and Mars").font(.title3).foregroundStyle(.secondary)
+                    Text("Myriahedral maps of the Earth, the Moon, Mars and Venus").font(.title3).foregroundStyle(.secondary)
                 }
             }
             Text("A homage to Jarke J. van Wijk")
@@ -114,7 +114,7 @@ struct AboutView: View {
                 the distortion every other map hides.
 
                 JJ — for Jarke Jan — unfolds the Earth along its coastlines, rivers, plates, timezones, borders, \
-                crowds, air routes, winds, rain and the line between day and night; unfolds the Moon and Mars along \
+                crowds, air routes, winds, rain and the line between day and night; unfolds the Moon, Mars and Venus along \
                 their craters and the shores of vanished seas; and redraws the figures of the paper on today's GPUs, \
                 at sixty frames a second. And since every one of these maps is a polyhedron cut open, any of them \
                 closes again by hand: print it as a paper globe (⌘P), cut, fold and glue.

@@ -271,7 +271,7 @@ struct UnfoldedMapTests {
 
 @Suite("Other worlds unfold too")
 struct OtherWorldLayoutTests {
-    static let cases: [(String, String)] = [Body.moon, Body.mars].flatMap { body in
+    static let cases: [(String, String)] = [Body.moon, Body.mars, Body.venus].flatMap { body in
         LayoutCatalog.available(for: body).map { (body.id, $0.descriptor.id) }
     }
 
@@ -329,7 +329,7 @@ struct GazetteerTests {
 
     @Test func everyEntryIsItsOwn() {
         // Three Albanys in the United States: told apart, never confused.
-        for world in [BodyData.earth, .moon, .mars] {
+        for world in [BodyData.earth, .moon, .mars, .venus] {
             let entries = Gazetteer.of(world).entries
             #expect(Set(entries.map { $0.id }).count == entries.count)
         }

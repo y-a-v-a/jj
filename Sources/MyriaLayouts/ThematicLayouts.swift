@@ -517,7 +517,7 @@ public struct WaterlineLayout: Layout {
         LayoutDescriptor(
             id: "waterline", title: "Waterline",
             summary: "Flood the world to any level; the map tears along the shore",
-            story: "Choose a water level and the edges weigh how far above or below it the ground lies. The weakest edges run along the shoreline of the flooded world, so the map's outline becomes that shore: the coast of today at 0 m, the coast of the Ice Age at −120 m, and on Mars the shoreline of the ocean that may once have filled its northern plains, near −3.8 km.",
+            story: "Choose a water level and the edges weigh how far above or below it the ground lies. The weakest edges run along the shoreline of the flooded world, so the map's outline becomes that shore: the coast of today at 0 m, the coast of the Ice Age at −120 m, on Mars the shoreline of the ocean that may once have filled its northern plains, near −3.8 km, and on Venus, flooded to just below its median height, the plains go under and Ishtar and Aphrodite Terra stand out as continents.",
             symbol: "water.waves", category: .worlds,
             parameters: [
                 .slider("level", "Water level", -8000...8000, step: 50, unit: " m", default: 0),
@@ -530,6 +530,8 @@ public struct WaterlineLayout: Layout {
         switch body.id {
         case "mars": ["level": -3800, "center": -60]
         case "moon": ["level": -1800, "center": 0]
+        // Just below the median height: the plains, planitiae, under water.
+        case "venus": ["level": 600, "center": 60]
         default: [:]
         }
     }

@@ -1,7 +1,7 @@
 # JJ
 
 The macOS app to play with the myriahedral projection of the Earth, and
-of the Moon and Mars. A homage to Jarke J. van Wijk.
+of the Moon, Mars and Venus. A homage to Jarke J. van Wijk.
 
 ![The globe unfolding into van Wijk's "aligned with continents" map](docs/unfold.gif)
 
@@ -52,7 +52,7 @@ night. And all of van Wijk's own figures are redrawn, live, on today's GPUs.
 | | Prevailing Winds | the wind: ribbons along the trade winds and westerlies, with drifting particles |
 | | Rainfall | the dry world: the rain belts stay whole; step through the months to see the monsoon |
 | **Shores and craters** | Waterline | the shore of a flooded world at any level: today's coast at 0 m, an ancient Martian ocean at −3.8 km |
-| | Craters | the young plains (Moon and Mars): every named crater stays whole |
+| | Craters | the young plains (Moon, Mars, Venus): every named crater stays whole |
 | **Van Wijk, 2008** | Cylindrical, Conical, Azimuthal, Two Hemispheres, Polyconic | the graticular weight w = −(W_φ\|φ − φ₀\| + W_λ min\|λ − λ₀ + 2πk\|) (figures 3 and 4) |
 | | Platonic Solids | the oceans: each solid turned until its cuts cross the least land (figure 8) |
 | | Recursive Subdivision | the self-similar cuts of subdivided solids with the w₀/w₁/w_c weights (figure 5) |
@@ -74,17 +74,25 @@ them pentagons). Hexagons are never cut apart, so the seams zigzag:
 ## Other worlds
 
 The same layouts that need no Earth data, and two that are new, unfold the
-**Moon** (LRO LOLA topography, IAU feature names) and **Mars** (MGS MOLA
-topography). On Mars, Waterline floods the northern lowlands to the
-shoreline of the ocean that may once have been there.
+**Moon** (LRO LOLA topography, IAU feature names), **Mars** (MGS MOLA
+topography) and **Venus** (Magellan radar altimetry). On Mars, Waterline
+floods the northern lowlands to the shoreline of the ocean that may once
+have been there; on Venus it floods the plains, and Ishtar Terra with
+Maxwell Montes and the long band of Aphrodite Terra stand out as islands.
 
 ![The Moon and Mars](docs/worlds.jpg)
+
+![Venus: Waterline, Aligned with the Highlands and the Platonic icosahedron, in the Midnight palette](docs/venus.jpg)
+
+Venus is a `Body` like any other: an elevation grid and a gazetteer
+(`jj-data venus` reads Magellan's GeoTIFF directly and fills its coverage
+gaps), a relief tint, and the fields every rocky world shares.
 
 ## The app
 
 ![JJ in dark mode](docs/app-dark.jpg)
 
-- A gallery of every layout with live thumbnails, for the Earth, the Moon and Mars.
+- A gallery of every layout with live thumbnails, for the Earth, the Moon, Mars and Venus.
   Every gesture and shortcut is in Help → JJ Help (⌘?).
 - Changing layout **folds the map back into the globe, swaps the cut while
   closed, and unfolds the new map** (every layout closes into the same
@@ -97,7 +105,7 @@ shoreline of the ocean that may once have been there.
 - **Find a place** (⌘F): where did Amsterdam go? The camera flies to wherever
   the unfolding put it and a marker pulses there; on the closed globe the
   globe turns to face it. Cities, countries and oceans on Earth; craters,
-  maria and mountains on the Moon and Mars.
+  maria, mountains and coronae on the other worlds.
 - Hover cards with whatever is under the pointer (country, clock, plate,
   height, rainfall, wind, the nearest city or crater); click to outline a
   piece; option-click (or the context menu) to recentre a layout on a place.
@@ -250,7 +258,7 @@ swift build -c release --product jj
 
 ## Checked against the paper
 
-The tests (`swift test`; 119 Swift Testing tests, over 200 cases with their
+The tests (`swift test`; 120 Swift Testing tests, over 200 cases with their
 arguments) check the geometry,
 the data and each layout's theme, and render maps with Metal to look at
 the pixels:
@@ -291,7 +299,7 @@ prepared off the main thread.
 | Path | Contents |
 |---|---|
 | `Sources/MyriaCore` | vectors, myriahedra, topology, spanning trees (Kruskal and Prim), unfolding, folding, clipping, earcut, k-d tree, paper nets |
-| `Sources/MyriaData` | bodies, datasets, fields, GeoJSON, the grid format, bundled data for the Earth, the Moon and Mars |
+| `Sources/MyriaData` | bodies, datasets, fields, GeoJSON, the grid format, bundled data for the Earth, the Moon, Mars and Venus |
 | `Sources/MyriaLayouts` | the `Layout` protocol, the layout context, weights, the region tree, all layouts |
 | `Sources/MyriaRender` | palettes, per-face overlays, the map engine, poses and cameras, the Metal renderer, export, paper globes |
 | `Sources/JJApp` | the SwiftUI app |
@@ -307,7 +315,7 @@ See `Sources/MyriaData/Resources/*/SOURCES.md`. In short:
 - Plates: P. Bird (2003), *An updated digital model of plate boundaries*, G³ 4(3); GeoJSON by H. Ahlenius, ODC-BY.
 - Air routes: [OpenFlights](https://openflights.org/data), ODbL.
 - Rainfall: GPCP v2.3 (Adler et al. 2018); winds: NCEP/NCAR Reanalysis 1 (Kalnay et al. 1996); both via NOAA PSL.
-- Elevation: ETOPO1 (Amante & Eakins 2009, NOAA NCEI); the Moon: LRO LOLA; Mars: MGS MOLA (NASA PDS); feature names: the IAU Gazetteer of Planetary Nomenclature (USGS).
+- Elevation: ETOPO1 (Amante & Eakins 2009, NOAA NCEI); the Moon: LRO LOLA; Mars: MGS MOLA (NASA PDS); Venus: Magellan global topography (USGS Astrogeology, from the Magellan GTDR; Ford & Pettengill 1992); feature names: the IAU Gazetteer of Planetary Nomenclature (USGS).
 
 ## Sources
 

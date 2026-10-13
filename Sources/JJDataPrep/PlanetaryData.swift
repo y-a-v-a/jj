@@ -1,7 +1,7 @@
 import Foundation
 import MyriaData
 
-/// The Moon and Mars: laser-altimetry grids from the PDS Geosciences Node
+/// The Moon, Mars and Venus: altimetry grids from the PDS Geosciences Node and USGS
 /// (LRO LOLA, MGS MOLA) and named features from the IAU/USGS Gazetteer of
 /// Planetary Nomenclature, written into `Sources/MyriaData/Resources/<Body>/`.
 enum PlanetaryData {
@@ -43,6 +43,16 @@ enum PlanetaryData {
             + "doi:10.1029/2000JE001364; MGS MOLA team, NASA PDS Geosciences Node. Planetocentric IAU 2000 "
             + "coordinates; columns shifted from 0…360°E to −180…180°E.",
         gazetteer: "MARS")
+
+    static let venus = Spec(
+        body: "Venus",
+        pdsDirectory: "https://asc-pds-services.s3.us-west-2.amazonaws.com/mosaic/",
+        image: "Venus_Magellan_Topography_Global_4641m_v02.tif",
+        source: "Magellan Global Topography 4641 m v2 (USGS Astrogeology Science Center, from the Magellan GTDR, "
+            + "NASA PDS), averaged from 22.8 to 4 px/deg: height in metres above the 6051.0 km reference sphere. "
+            + "Ford, P. G. and Pettengill, G. H. (1992), Venus topography and kilometer-scale slopes, "
+            + "J. Geophys. Res. 97(E8), 13103–13114, doi:10.1029/92JE01085. Simple cylindrical, −180…180°E.",
+        gazetteer: "VENUS")
 
     static let gazetteerBase = "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com/"
     /// At most this many features, the largest kept.
@@ -135,6 +145,92 @@ enum PlanetaryData {
         print("   elevation \(formatNumber(Double(dnLow) * scale, decimals: 1))…\(formatNumber(Double(dnHigh) * scale, decimals: 1)) m"
             + (missingCount > 0 ? ", \(missingCount) missing" : ""))
         try ws.write(encoded, to: "elevation.grid", body: spec.body)
+    }
+
+    /// Venus: Magellan's global topography mosaic, an uncompressed simple
+    /// cylindrical GeoTIFF of signed 16-bit metres, averaged down to the
+    /// 4 px/deg of the Moon and Mars.
+    static func venusElevation(_ ws: Workspace, _ spec: Spec) throws {
+        let url = try ws.raw(spec.image, from: spec.pdsDirectory + spec.image)
+        let tiff = try GeoTIFF16(contentsOf: url)
+        let (W, H) = (tiff.width, tiff.height)
+        // A whole-globe grid, top-left corner at 180°W 90°N.
+        let radius = tiff.datumRadius
+        let west = tiff.tieX / radius * 180 / .pi, north = tiff.tieY / radius * 180 / .pi
+        let spanX = Double(W) * tiff.pixelX / radius * 180 / .pi, spanY = Double(H) * tiff.pixelY / radius * 180 / .pi
+        guard abs(west + 180) < 1e-3, abs(north - 90) < 1e-3, abs(spanX - 360) < 1e-3, abs(spanY - 180) < 1e-3 else {
+            throw PrepError("\(spec.image): expected a global grid, got \(west)°E, \(north)°N, \(spanX)° × \(spanY)°")
+        }
+        let resolution = 4, outW = 360 * resolution, outH = 180 * resolution
+        var sum = [Double](repeating: 0, count: outW * outH), count = [Int](repeating: 0, count: outW * outH)
+        let column = (0..<W).map { i in min(outW - 1, Int((Double(i) + 0.5) / Double(W) * Double(outW))) }
+        var low = Int16.max, high = Int16.min
+        for r in 0..<H {
+            // Source rows run north → south; output rows south → north.
+            let row = min(outH - 1, Int((1 - (Double(r) + 0.5) / Double(H)) * Double(outH)))
+            tiff.row(r) { values in
+                for i in 0..<W where values[i] != tiff.noData {
+                    let k = row * outW + column[i]
+                    sum[k] += Double(values[i])
+                    count[k] += 1
+                    low = min(low, values[i])
+                    high = max(high, values[i])
+                }
+            }
+        }
+        var height = (0..<(outW * outH)).map { count[$0] > 0 ? sum[$0] / Double(count[$0]) : Double.nan }
+        let missing = height.filter(\.isNaN).count
+        fillGaps(&height, width: outW, height: outH)
+        let layer = height.map { Float($0.rounded()) }
+        let step = 1 / Double(resolution)
+        let share = 100 * Double(missing) / Double(outW * outH)
+        let header = GridFile.Header(
+            width: outW, height: outH, layers: ["elevation"], type: .int16,
+            lon0: -180 + step / 2, lat0: -90 + step / 2, dlon: step, dlat: step,
+            scale: 1, offset: 0, missing: nil, units: "m",
+            source: spec.source + String(format: " Gaps in Magellan's coverage (%.1f %% of cells, mostly near the poles) "
+                + "are filled smoothly from their surroundings.", share),
+            compression: "lzfse")
+        print("   \(spec.image): \(W)×\(H) signed 16-bit, \(formatNumber(tiff.pixelX, decimals: 1)) m pixels on a "
+            + "\(formatNumber(radius / 1000, decimals: 1)) km sphere → \(outW)×\(outH)")
+        print("   elevation \(low)…\(high) m" + (missing > 0 ? String(format: ", %d cells (%.1f %%) without data, filled", missing, share) : ""))
+        try ws.write(try GridFile(header: header, layers: [layer]).encoded(), to: "elevation.grid", body: spec.body)
+    }
+
+    /// Fills NaN cells of a global grid (longitude wraps) from their
+    /// surroundings: layer by layer from the edges of each gap, then smoothed
+    /// by Laplace iterations with the measured cells held fixed.
+    static func fillGaps(_ grid: inout [Double], width: Int, height: Int) {
+        let gaps = grid.indices.filter { grid[$0].isNaN }
+        guard !gaps.isEmpty else { return }
+        func neighbours(_ k: Int) -> [Int] {
+            let (r, c) = (k / width, k % width)
+            var n = [r * width + (c + 1) % width, r * width + (c + width - 1) % width]
+            if r > 0 { n.append(k - width) }
+            if r < height - 1 { n.append(k + width) }
+            return n
+        }
+        // Onion peeling: each pass fills cells next to known ones.
+        var open = Set(gaps)
+        while !open.isEmpty {
+            var filled: [(Int, Double)] = []
+            for k in open {
+                let known = neighbours(k).map { grid[$0] }.filter { !$0.isNaN }
+                if !known.isEmpty { filled.append((k, known.reduce(0, +) / Double(known.count))) }
+            }
+            if filled.isEmpty { break }
+            for (k, v) in filled {
+                grid[k] = v
+                open.remove(k)
+            }
+        }
+        // Smooth the filled cells.
+        for _ in 0..<200 {
+            for k in gaps {
+                let n = neighbours(k)
+                grid[k] = n.reduce(0) { $0 + grid[$1] } / Double(n.count)
+            }
+        }
     }
 
     // MARK: Named features
@@ -332,7 +428,7 @@ struct DBFTable {
 extension Verification {
     static let bodySizeLimit = 4 * 1_048_576
 
-    static func checkMoonAndMars(_ ws: Workspace, report: Report) throws {
+    static func checkOtherWorlds(_ ws: Workspace, report: Report) throws {
         // The Moon
         let moon = try checkBodyElevation(ws, body: "Moon", report: report)
         let moonValues = try moon.layer(named: "elevation").filter { !$0.isNaN }
@@ -385,6 +481,18 @@ extension Verification {
             report.check(height > 15_000, "elevation at the Olympus Mons feature \(Int(height)) m > 15000 (grid and features agree)")
         }
         checkBodyTotal(ws, body: "Mars", report: report)
+
+        // Venus
+        let venus = try checkBodyElevation(ws, body: "Venus", report: report)
+        let maxwell = try sample(venus, "elevation", lat: 65.2, lon: 3.3, nearest: true)
+        let atalanta = try sample(venus, "elevation", lat: 46, lon: 165, nearest: true)
+        report.check(maxwell > 8_000, "Maxwell Montes (65.2°N 3.3°E) \(Int(maxwell)) m > 8000")
+        report.check(atalanta < 300, "Atalanta Planitia (46°N 165°E) \(Int(atalanta)) m < 300")
+        let venusFeatures = try checkFeatures(ws, body: "Venus", report: report)
+        let venusNames = Set(venusFeatures.compactMap { $0["name"] as? String })
+        report.check(venusNames.contains("Maxwell Montes") && venusNames.contains("Aphrodite Terra"),
+                     "Venus features include Maxwell Montes and Aphrodite Terra")
+        checkBodyTotal(ws, body: "Venus", report: report)
     }
 
     static func checkBodyElevation(_ ws: Workspace, body: String, report: Report) throws -> GridFile {
@@ -429,5 +537,92 @@ extension Verification {
             print("   " + "\(body)/\(url.lastPathComponent)".padding(toLength: 26, withPad: " ", startingAt: 0) + formatBytes(size))
         }
         report.check(total > 0 && total < bodySizeLimit, "Resources/\(body) total \(formatBytes(total)) under \(formatBytes(bodySizeLimit))")
+    }
+}
+
+// MARK: - GeoTIFF
+
+/// Just enough of TIFF for an uncompressed, single-band, signed 16-bit
+/// GeoTIFF in a simple cylindrical projection on a sphere.
+struct GeoTIFF16 {
+    let data: Data
+    let littleEndian: Bool
+    let width: Int, height: Int
+    let rowOffsets: [Int]
+    /// Metres per pixel, and the model coordinates of the top-left corner.
+    let pixelX: Double, pixelY: Double, tieX: Double, tieY: Double
+    /// The sphere's radius (GeoKey 2057, semi-major axis) in metres.
+    let datumRadius: Double
+    let noData: Int16
+
+    init(contentsOf url: URL) throws {
+        data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count > 8 else { throw PrepError("\(url.lastPathComponent): not a TIFF") }
+        littleEndian = data[0] == 0x49
+        let d = data, le = littleEndian
+        func u16(_ o: Int) -> Int { Int(le ? UInt16(d[o]) | UInt16(d[o + 1]) << 8 : UInt16(d[o]) << 8 | UInt16(d[o + 1])) }
+        func u32(_ o: Int) -> Int { le ? u16(o) | u16(o + 2) << 16 : u16(o) << 16 | u16(o + 2) }
+        func f64(_ o: Int) -> Double {
+            var bits: UInt64 = 0
+            for k in 0..<8 { bits |= UInt64(d[o + k]) << (le ? 8 * k : 8 * (7 - k)) }
+            return Double(bitPattern: bits)
+        }
+        guard u16(2) == 42 else { throw PrepError("\(url.lastPathComponent): not a classic TIFF") }
+        let ifd = u32(4)
+        var tags: [Int: (type: Int, count: Int, offset: Int)] = [:]
+        for e in 0..<u16(ifd) {
+            let o = ifd + 2 + 12 * e
+            let type = u16(o + 2), count = u32(o + 4)
+            let size = [1: 1, 2: 1, 3: 2, 4: 4, 12: 8][type, default: 1] * count
+            tags[u16(o)] = (type, count, size <= 4 ? o + 8 : u32(o + 8))
+        }
+        func value(_ tag: Int, _ k: Int = 0) throws -> Int {
+            guard let t = tags[tag] else { throw PrepError("\(url.lastPathComponent): no TIFF tag \(tag)") }
+            return t.type == 3 ? u16(t.offset + 2 * k) : u32(t.offset + 4 * k)
+        }
+        func doubles(_ tag: Int) throws -> [Double] {
+            guard let t = tags[tag], t.type == 12 else { throw PrepError("\(url.lastPathComponent): no TIFF tag \(tag)") }
+            return (0..<t.count).map { f64(t.offset + 8 * $0) }
+        }
+        let w = try value(256), h = try value(257)
+        (width, height) = (w, h)
+        guard try value(258) == 16, try value(259) == 1, (try? value(277)) ?? 1 == 1, (try? value(339)) ?? 1 == 2 else {
+            throw PrepError("\(url.lastPathComponent): expected one uncompressed band of signed 16-bit samples")
+        }
+        let rowsPerStrip = (try? value(278)) ?? h
+        let strips = (h + rowsPerStrip - 1) / rowsPerStrip
+        let stripOffsets = try (0..<strips).map { try value(273, $0) }
+        rowOffsets = (0..<h).map { r in stripOffsets[r / rowsPerStrip] + (r % rowsPerStrip) * 2 * w }
+        let scale = try doubles(33550), tie = try doubles(33922)
+        (pixelX, pixelY, tieX, tieY) = (scale[0], scale[1], tie[3], tie[4])
+        // GeoKeys: the directory (tag 34735) points semi-major axis 2057 at a double in tag 34736.
+        guard let keys = tags[34735], let params = try? doubles(34736) else {
+            throw PrepError("\(url.lastPathComponent): no GeoKeys")
+        }
+        var radius: Double?
+        for k in 1...u16(keys.offset + 6) {
+            let o = keys.offset + 8 * k
+            if u16(o) == 2057, u16(o + 2) == 34736 { radius = params[u16(o + 6)] }
+        }
+        guard let radius else { throw PrepError("\(url.lastPathComponent): no semi-major axis") }
+        datumRadius = radius
+        if let t = tags[42113] {
+            noData = Int16(String(decoding: d[t.offset..<(t.offset + t.count)], as: UTF8.self)
+                .trimmingCharacters(in: .controlCharacters.union(.whitespaces))) ?? .min
+        } else {
+            noData = .min
+        }
+    }
+
+    /// The samples of row `r` (north first).
+    func row(_ r: Int, _ body: ([Int16]) -> Void) {
+        let o = rowOffsets[r]
+        let values: [Int16] = data.withUnsafeBytes { raw in
+            (0..<width).map { i in
+                let bits = raw.loadUnaligned(fromByteOffset: o + 2 * i, as: UInt16.self)
+                return Int16(bitPattern: littleEndian ? UInt16(littleEndian: bits) : UInt16(bigEndian: bits))
+            }
+        }
+        body(values)
     }
 }

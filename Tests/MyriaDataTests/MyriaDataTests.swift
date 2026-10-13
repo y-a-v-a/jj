@@ -222,9 +222,22 @@ struct OtherWorldTests {
         #expect(abs(f.quantile(0.5) - 0.5) < 0.2)
     }
 
+    @Test func venusHasItsLandmarks() throws {
+        let venus = BodyData.venus
+        #expect(BodyData.of(.venus) === venus)
+        let elevation = try venus.field(FieldKey("elevation"))
+        // Maxwell Montes stands some 11 km above the 6051 km sphere; the
+        // plains of Atalanta lie below it.
+        #expect(elevation.value(latitude: 65.2, longitude: 3.3) > 8_000)
+        #expect(elevation.value(latitude: 46, longitude: 165) < 300)
+        // Magellan's gaps are filled: no hole anywhere.
+        #expect(elevation.values.allSatisfy { $0.isFinite })
+        #expect(try venus.features().features.contains { $0.name == "Maxwell Montes" })
+    }
+
     @Test func worldsHaveTheirOwnCatalogues() {
-        #expect(Body.all.map(\.id) == ["earth", "moon", "mars"])
-        #expect(!Body.moon.hasSeas && !Body.mars.hasSeas && Body.earth.hasSeas)
+        #expect(Body.all.map(\.id) == ["earth", "moon", "mars", "venus"])
+        #expect(!Body.moon.hasSeas && !Body.mars.hasSeas && !Body.venus.hasSeas && Body.earth.hasSeas)
         #expect(Body.mars.availableFields.contains { $0.id == "craters" })
         #expect(!Body.mars.has(.land))
     }
