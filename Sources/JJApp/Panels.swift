@@ -39,9 +39,16 @@ struct GalleryView: View {
             }
         }
         .listStyle(.sidebar)
-        // The tour, the menus and the keyboard keep the chosen layout in view.
+        // The chosen layout stays in view: after the tour, the menus and the
+        // keyboard choose, at launch and on another world. (Scrolling only
+        // as far as needed, so a click leaves its row under the pointer.)
         .onChange(of: model.layoutID) {
-            withAnimation(.easeInOut(duration: 0.4)) { proxy.scrollTo(model.layoutID, anchor: .center) }
+            withAnimation(.easeInOut(duration: 0.4)) { proxy.scrollTo(model.layoutID) }
+        }
+        .onChange(of: model.bodyID) { proxy.scrollTo(model.layoutID) }
+        .task {
+            try? await Task.sleep(for: .milliseconds(300))
+            proxy.scrollTo(model.layoutID)
         }
         }
     }

@@ -22,10 +22,16 @@ public struct FieldLabLayout: Layout {
                 .choice("field", "Field", fields.map(\.title), default: 0),
                 .choice("mode", "Weigh", Self.modes, default: 0),
                 .slider("level", "Contour level", 0.05...0.95, step: 0.01, default: 0.5,
-                        help: "For a contour: the share of the world's values below it"),
+                        help: "For a contour: the share of the world's values below it (for densities, of the places with any)"),
                 centerParameter,
             ],
             preferredMesh: .geodesic(frequency: 40))
+    }
+
+    /// By default the height of the world, torn along its median contour.
+    public func defaults(for body: Body) -> [String: Double] {
+        guard let i = body.availableFields.firstIndex(where: { $0.id == "elevation" }) else { return [:] }
+        return ["field": Double(i), "mode": 2, "level": 0.5]
     }
 
     /// The field chosen, among those the world has.
@@ -38,17 +44,16 @@ public struct FieldLabLayout: Layout {
     public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
         guard let d = Self.field(p, of: context.data.body) else { throw LayoutError.missingData("a field") }
         let key = d.defaultKey
-        let field = try context.data.field(key)
-        // Scaled to the field's own range (2nd to 98th percentile).
-        let lo = field.quantile(0.02), hi = field.quantile(0.98)
-        let span = max(hi - lo, 1e-12)
-        let v = try context.edgeValues(key).map { $0.isFinite ? min(max(($0 - lo) / span, 0), 1) : 0 }
+        let table = try Self.quantiles(key, context.data)
+        // Scaled to the field's own range.
+        let span = max(table.hi - table.lo, 1e-12)
+        let v = try context.edgeValues(key).map { $0.isFinite ? min(max(($0 - table.lo) / span, 0), 1) : 0 }
         let weights: [Double]
         switch p.index("mode") {
         case 1:
             weights = v.map { -$0 }
         case 2:
-            let level = (field.quantile(p.value("level", default: 0.5)) - lo) / span
+            let level = (table.value(at: p.value("level", default: 0.5)) - table.lo) / span
             weights = v.map { abs($0 - level) }
         default:
             weights = v
@@ -57,6 +62,33 @@ public struct FieldLabLayout: Layout {
         return LayoutCut(hinges: context.mesh.hinges(weights: Weights.add(weights, order(context, center: center))),
                          root: Weights.root(context, longitude: center),
                          notes: ["\(d.title), \(Self.modes[min(max(p.index("mode"), 0), 2)].lowercased())"])
+    }
+
+    /// A field's distribution, sorted once per field: its range (2nd to
+    /// 98th percentile) and its values at every whole percent. Fields that
+    /// are mostly at their floor (densities: no people, no craters) are
+    /// described by the rest, so contour levels spread over the places
+    /// that have any.
+    struct Quantiles: Sendable {
+        let lo: Double, hi: Double
+        let levels: [Double]
+
+        func value(at share: Double) -> Double {
+            let x = min(max(share, 0), 1) * 100
+            let i = min(Int(x), 99)
+            return levels[i] + (levels[i + 1] - levels[i]) * (x - Double(i))
+        }
+    }
+
+    static func quantiles(_ key: FieldKey, _ data: BodyData) throws -> Quantiles {
+        try data.cached("fieldlab-quantiles:\(key)") {
+            let field = try data.field(key)
+            let shares = (0...100).map { Double($0) / 100 }
+            let probe = field.quantiles([0, 0.3])
+            let floor = probe[0], atFloor = probe[1] <= floor
+            let levels = atFloor ? field.quantiles(shares) { Double($0) > floor } : field.quantiles(shares)
+            return Quantiles(lo: atFloor ? floor : levels[2], hi: levels[98], levels: levels)
+        }
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {

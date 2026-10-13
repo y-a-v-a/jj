@@ -25,13 +25,14 @@ struct MapOptions: ParsableArguments {
     @Option(name: .shortAndLong, help: "Mesh: graticule:2.5, geodesic:40, platonic:icosahedron:3. Default: the layout's own.")
     var mesh: String?
 
-    @Option(name: .shortAndLong, parsing: .upToNextOption, help: "Layout parameters as name=value.")
+    @Option(name: .shortAndLong, parsing: .upToNextOption,
+            help: "Layout parameters as name=value (choices count from 0, in the order the world offers them).")
     var parameter: [String] = []
 
     @Option(help: "Date and time (ISO 8601) for night, clocks and time-dependent layouts.")
     var date: String?
 
-    @Option(help: "The world: earth, moon or mars.")
+    @Option(help: "The world: earth, moon, mars or venus.")
     var body = "earth"
 
     func world() throws -> Body {
@@ -284,7 +285,7 @@ struct Gallery: ParsableCommand {
     @Option(help: "Only layouts whose id contains this.")
     var filter: String?
 
-    @Option(help: "The world: earth, moon or mars.")
+    @Option(help: "The world: earth, moon, mars or venus.")
     var body = "earth"
 
     @Option(help: "Also compose all renders into one titled contact sheet (PNG or JPEG by extension).")

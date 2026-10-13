@@ -817,7 +817,10 @@ final class AppModel {
     private func describe(_ p: GeoPoint, state: MapState) -> [HoverLine] {
         let data = state.data
         var lines: [HoverLine] = []
-        func add(_ label: String, _ value: String?) { if let value, !value.isEmpty { lines.append(HoverLine(label: label, value: value)) } }
+        // One line per label: labels are the lines' identities.
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty, !lines.contains(where: { $0.label == label }) { lines.append(HoverLine(label: label, value: value)) }
+        }
         let layers = self.layers
         let id = state.layout.id
         if data.body.has(.land), let land = try? data.land() {
@@ -837,10 +840,15 @@ final class AppModel {
         }
         if let e = try? data.field(FieldKey("elevation")) {
             let h = e.value(at: p)
-            add(h >= 0 ? "Elevation" : "Depth", "\(Int(abs(h)).formatted()) m")
+            // Depth below the sea; on worlds without seas, height below the datum.
+            if data.body.hasSeas {
+                add(h >= 0 ? "Elevation" : "Depth", "\(Int(abs(h)).formatted()) m")
+            } else {
+                add("Elevation", "\(Int(h).formatted()) m")
+            }
         }
         switch coloring {
-        case .field(let key):
+        case .field(let key) where key.id != "elevation":
             if let field = try? data.field(key), let d = data.body.field(key.id) {
                 let v = field.value(at: p)
                 let text: String = switch key.id {

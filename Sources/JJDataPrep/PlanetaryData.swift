@@ -589,22 +589,37 @@ struct GeoTIFF16 {
         guard try value(258) == 16, try value(259) == 1, (try? value(277)) ?? 1 == 1, (try? value(339)) ?? 1 == 2 else {
             throw PrepError("\(url.lastPathComponent): expected one uncompressed band of signed 16-bit samples")
         }
-        let rowsPerStrip = (try? value(278)) ?? h
+        let rowsPerStrip = max(1, (try? value(278)) ?? h)
         let strips = (h + rowsPerStrip - 1) / rowsPerStrip
+        guard let stripTag = tags[273], stripTag.count >= strips else {
+            throw PrepError("\(url.lastPathComponent): \(tags[273]?.count ?? 0) strips for \(strips) needed")
+        }
         let stripOffsets = try (0..<strips).map { try value(273, $0) }
         rowOffsets = (0..<h).map { r in stripOffsets[r / rowsPerStrip] + (r % rowsPerStrip) * 2 * w }
+        // Every row must lie inside the file.
+        guard rowOffsets.allSatisfy({ $0 >= 0 && $0 + 2 * w <= d.count }) else {
+            throw PrepError("\(url.lastPathComponent): image rows run past the end of the file")
+        }
         let scale = try doubles(33550), tie = try doubles(33922)
         (pixelX, pixelY, tieX, tieY) = (scale[0], scale[1], tie[3], tie[4])
         // GeoKeys: the directory (tag 34735) points semi-major axis 2057 at a double in tag 34736.
         guard let keys = tags[34735], let params = try? doubles(34736) else {
             throw PrepError("\(url.lastPathComponent): no GeoKeys")
         }
-        var radius: Double?
-        for k in 1...u16(keys.offset + 6) {
+        // GeoKeys of the projection: the sphere's radius, and its centre and
+        // offsets, which must leave the grid where the tie point says.
+        var doubleKeys: [Int: Double] = [:]
+        let keyCount = u16(keys.offset + 6)
+        guard keyCount > 0, keys.count >= 4 * (keyCount + 1) else { throw PrepError("\(url.lastPathComponent): bad GeoKeys") }
+        for k in 1...keyCount {
             let o = keys.offset + 8 * k
-            if u16(o) == 2057, u16(o + 2) == 34736 { radius = params[u16(o + 6)] }
+            let index = u16(o + 6)
+            if u16(o + 2) == 34736, params.indices.contains(index) { doubleKeys[u16(o)] = params[index] }
         }
-        guard let radius else { throw PrepError("\(url.lastPathComponent): no semi-major axis") }
+        guard let radius = doubleKeys[2057] else { throw PrepError("\(url.lastPathComponent): no semi-major axis") }
+        for (key, name) in [(3088, "ProjCenterLong"), (3082, "ProjFalseEasting"), (3083, "ProjFalseNorthing")] {
+            if let v = doubleKeys[key], v != 0 { throw PrepError("\(url.lastPathComponent): \(name) \(v), expected 0") }
+        }
         datumRadius = radius
         if let t = tags[42113] {
             noData = Int16(String(decoding: d[t.offset..<(t.offset + t.count)], as: UTF8.self)

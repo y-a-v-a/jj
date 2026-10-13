@@ -132,6 +132,34 @@ public struct GridField: SphereField {
         return Double(pairs.last!.0)
     }
 
+    /// Several quantiles at once, sorting once: of the finite values that
+    /// `include` keeps, area-weighted by the cosine of latitude.
+    public func quantiles(_ qs: [Double], where include: (Float) -> Bool = { _ in true }) -> [Double] {
+        var pairs: [(Float, Double)] = []
+        pairs.reserveCapacity(values.count)
+        for j in 0..<height {
+            let w = max(cos((lat0 + Double(j) * dlat) * .pi / 180), 0)
+            for i in 0..<width where values[j * width + i].isFinite && include(values[j * width + i]) {
+                pairs.append((values[j * width + i], w))
+            }
+        }
+        guard !pairs.isEmpty else { return qs.map { _ in 0 } }
+        pairs.sort { $0.0 < $1.0 }
+        let total = pairs.reduce(0) { $0 + $1.1 }
+        var out = [Double](repeating: Double(pairs.last!.0), count: qs.count)
+        let order = qs.indices.sorted { qs[$0] < qs[$1] }
+        var acc = 0.0, k = 0
+        for (v, w) in pairs {
+            acc += w
+            while k < order.count, acc >= qs[order[k]] * total {
+                out[order[k]] = Double(v)
+                k += 1
+            }
+            if k == order.count { break }
+        }
+        return out
+    }
+
     public func mapValues(_ transform: (Float) -> Float) -> GridField {
         GridField(width: width, height: height, lon0: lon0, lat0: lat0, dlon: dlon, dlat: dlat, values: values.map(transform))
     }

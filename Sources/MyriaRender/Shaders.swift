@@ -170,6 +170,10 @@ fragment float4 surfaceFragment(SurfaceOut in [[stage_in]],
                 // A body of its own colours, lowest to highest ground.
                 float t = clamp((h - u.reliefRange.x) / max(u.reliefRange.y - u.reliefRange.x, 1.0), 0.0, 1.0);
                 color = reliefLUT.sample(lut, float2(pow(t, 0.85), 0.25));
+            } else if (mode == 4 && h >= 0.0) {
+                // Land under the base layer (no land fills drawn): its tints.
+                float t = sqrt(clamp(h / 6000.0, 0.0, 1.0));
+                color = reliefLUT.sample(lut, float2(t, 0.75));
             } else if (mode == 4) {
                 float t = 1.0 - sqrt(clamp(-h / 8000.0, 0.0, 1.0));
                 color = reliefLUT.sample(lut, float2(t, 0.25));

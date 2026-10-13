@@ -523,10 +523,9 @@ public final class MapRenderer {
         let folded = s.unfold < 1
         // Worlds without seas show their relief instead of land and sea.
         if !data.body.hasSeas, case .landSea = s.coloring { s.coloring = .relief }
-        // Height on a world without seas is its relief, in its own colours.
-        if !data.body.hasSeas, data.body.relief != nil, case .field(let key) = s.coloring, key.id == "elevation" {
-            s.coloring = .relief
-        }
+        // Height is drawn as relief: hypsometric tints and bathymetry on the
+        // Earth, a world's own colours elsewhere.
+        if case .field(let key) = s.coloring, key.id == "elevation" { s.coloring = .relief }
         let px = Float(s.pixelScale * s.lineScale)
 
         var view = ViewUniforms(viewProjection: s.viewport.matrix(), viewportSize: SIMD2(Float(drawableSize.width), Float(drawableSize.height)),

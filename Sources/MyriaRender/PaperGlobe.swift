@@ -315,8 +315,7 @@ public enum PaperGlobe {
         y -= 5
         let faces = state.mesh.cellCount
         let diameter = o.diameter / 10
-        let body = state.data.body
-        let world = ["earth", "moon"].contains(body.id) ? "the \(body.name)" : body.name
+        let world = state.data.body.nameInSentence
         text(ctx, "A paper globe of \(world): \(faces.formatted()) faces in \(net.pieces.count) \(net.pieces.count == 1 ? "piece" : "pieces") · \(String(format: "%g", diameter)) cm across when folded",
              size: 2.9, at: CGPoint(x: x, y: y), color: grey, centered: false)
         y -= 5.2

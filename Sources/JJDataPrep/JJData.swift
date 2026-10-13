@@ -129,8 +129,6 @@ struct MarsData: ParsableCommand {
         let ws = try options.workspace()
         try step("mars elevation") { try PlanetaryData.elevation(ws, PlanetaryData.mars) }
         try step("mars features") { try PlanetaryData.features(ws, PlanetaryData.mars) }
-        try step("venus elevation") { try PlanetaryData.venusElevation(ws, PlanetaryData.venus) }
-        try step("venus features") { try PlanetaryData.features(ws, PlanetaryData.venus) }
     }
 }
 
@@ -153,6 +151,8 @@ struct All: ParsableCommand {
         try step("moon features") { try PlanetaryData.features(ws, PlanetaryData.moon) }
         try step("mars elevation") { try PlanetaryData.elevation(ws, PlanetaryData.mars) }
         try step("mars features") { try PlanetaryData.features(ws, PlanetaryData.mars) }
+        try step("venus elevation") { try PlanetaryData.venusElevation(ws, PlanetaryData.venus) }
+        try step("venus features") { try PlanetaryData.features(ws, PlanetaryData.venus) }
         try step("verify") { try Verification.run(ws) }
     }
 }

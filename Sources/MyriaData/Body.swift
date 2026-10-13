@@ -169,6 +169,9 @@ public struct Body: Sendable, Identifiable, Hashable {
     public func field(_ id: String) -> FieldDescriptor? { fields.first { $0.id == id } }
     /// Fields whose datasets this body has.
     public var availableFields: [FieldDescriptor] { fields.filter { $0.requires.allSatisfy(has) } }
+
+    /// The name as it reads in a sentence: "the Earth", "the Moon", "Mars".
+    public var nameInSentence: String { ["earth", "moon"].contains(id) ? "the \(name)" : name }
 }
 
 public enum BodyDataError: Error, CustomStringConvertible {
