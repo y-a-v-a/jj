@@ -42,6 +42,6 @@ let package = Package(
         .testTarget(name: "MyriaCoreTests", dependencies: ["MyriaCore"]),
         .testTarget(name: "MyriaDataTests", dependencies: ["MyriaData"]),
         .testTarget(name: "MyriaLayoutsTests", dependencies: ["MyriaLayouts"]),
-        .testTarget(name: "MyriaRenderTests", dependencies: ["MyriaRender", "MyriaLayouts"]),
+        .testTarget(name: "MyriaRenderTests", dependencies: ["MyriaRender", "MyriaLayouts"], exclude: ["Snapshots", "Output"]),
     ]
 )

@@ -11,7 +11,7 @@ struct JJCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj",
         abstract: "Myriahedral maps of the Earth, after Jarke J. van Wijk (2008).",
-        subcommands: [Layouts.self, Render.self, Stats.self, Gallery.self, Animate.self])
+        subcommands: [Layouts.self, Render.self, Stats.self, Gallery.self, Animate.self, Icon.self])
 }
 
 /// Options shared by the commands that build a map.
@@ -241,5 +241,66 @@ struct Animate: ParsableCommand {
         images += Array(repeating: images.last!, count: 12)
         try MapExport.gif(images, delay: 1.0 / 24).write(to: URL(fileURLWithPath: output))
         print("\(images.count) frames → \(output)")
+    }
+}
+
+struct Icon: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Render the app icon: a globe caught unfolding.")
+
+    @Option(name: .shortAndLong, help: "Output PNG file.")
+    var output = "icon.png"
+
+    @Option(help: "Size in pixels.")
+    var size = 1024
+
+    func run() throws {
+        let engine = MapEngine()
+        guard let layout = LayoutCatalog.layout(id: "geo-continents") else { return }
+        let state = try engine.build(layout, parameters: layout.descriptor.defaultParameters, mesh: MeshSpec(.geodesic(frequency: 24)))
+        let renderer = try MapRenderer()
+        var style = Palette.vanWijk.light
+        style.background = RGBA(hex: "#13233d")
+        style.backface = RGBA(hex: "#0d1a2e")
+        let inner = Int(Double(size) * 0.80)
+        // The globe turned to Europe and Africa, a third of the way open.
+        let frame = state.mesh.frames[state.projection.unfolding.root]
+        let facing = Mat3(Vec3(frame.xAxis.x, frame.yAxis.x, frame.normal.x), Vec3(frame.xAxis.y, frame.yAxis.y, frame.normal.y),
+                          Vec3(frame.xAxis.z, frame.yAxis.z, frame.normal.z))
+        let tilt = Mat3.rotation(axis: .unitX, angle: -0.35) * Mat3.rotation(axis: .unitY, angle: 0.5)
+        var settings = MapExport.settings(for: state, palette: .vanWijk, dark: false, width: inner, height: inner,
+                                          unfold: 0.16, globe: tilt * facing)
+        settings.style = style
+        settings.viewport = Viewport(bounds: Rect2(minX: -1.55, minY: -1.55, maxX: 1.55, maxY: 1.55),
+                                     size: Vec2(Double(inner), Double(inner)), center: Vec2(0.25, 0.1), margin: 0)
+        settings.layers = [.land, .coastlines, .graticule]
+        settings.lineScale = 2.2
+        let map = try renderer.image(state, settings: settings, width: inner, height: inner)
+
+        // Compose: a rounded square with a deep blue gradient, the globe on top.
+        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let s = Double(size), inset = s * 0.1, side = s - 2 * inset
+        let rect = CGRect(x: inset, y: inset, width: side, height: side)
+        let shape = CGPath(roundedRect: rect, cornerWidth: side * 0.225, cornerHeight: side * 0.225, transform: nil)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03, color: CGColor(gray: 0, alpha: 0.45))
+        ctx.addPath(shape)
+        ctx.setFillColor(CGColor(srgbRed: 0.075, green: 0.137, blue: 0.239, alpha: 1))
+        ctx.fillPath()
+        ctx.restoreGState()
+        ctx.saveGState()
+        ctx.addPath(shape)
+        ctx.clip()
+        let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  colors: [CGColor(srgbRed: 0.13, green: 0.25, blue: 0.42, alpha: 1),
+                                           CGColor(srgbRed: 0.05, green: 0.10, blue: 0.19, alpha: 1)] as CFArray,
+                                  locations: [0, 1])!
+        ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: s - inset), end: CGPoint(x: 0, y: inset), options: [])
+        let m = (s - Double(inner)) / 2
+        ctx.setBlendMode(.lighten)
+        ctx.draw(map, in: CGRect(x: m, y: m, width: Double(inner), height: Double(inner)))
+        ctx.restoreGState()
+        try MapExport.png(ctx.makeImage()!).write(to: URL(fileURLWithPath: output))
+        print("icon → \(output)")
     }
 }
