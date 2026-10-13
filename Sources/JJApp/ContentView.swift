@@ -159,20 +159,20 @@ struct ZoomControls: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            button("minus", help: "Zoom out (⌘− or ⌘-scroll)") { zoom(1 / 1.6) }
+            button("minus", label: "Zoom Out", help: "Zoom out (⌘− or ⌘-scroll)") { zoom(1 / 1.6) }
             Divider().frame(height: 16)
-            button("equal", help: "Show the whole map (⌘0)") {
+            button("equal", label: "Show the Whole Map", help: "Show the whole map (⌘0)") {
                 withAnimation(.easeInOut(duration: 0.25)) { model.camera = MapCamera() }
             }
             Divider().frame(height: 16)
-            button("plus", help: "Zoom in (⌘+ or ⌘-scroll)") { zoom(1.6) }
+            button("plus", label: "Zoom In", help: "Zoom in (⌘+ or ⌘-scroll)") { zoom(1.6) }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .glassBackground(Capsule())
     }
 
-    private func button(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    private func button(_ symbol: String, label: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .semibold))
@@ -181,6 +181,7 @@ struct ZoomControls: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel(label)
     }
 
     private func zoom(_ factor: Double) {
@@ -204,11 +205,14 @@ struct FoldControl: View {
             }
             .buttonStyle(.borderless)
             .help(model.unfold >= 1 ? "Fold the map into a globe" : "Unfold the globe into the map")
+            .accessibilityLabel(model.unfold >= 1 ? "Fold into a Globe" : "Unfold")
             .disabled(model.transition != nil)
             Slider(value: $model.unfold, in: 0...1)
                 .frame(width: 130)
                 .disabled(model.transition != nil)
                 .help("Fold: the globe on the left, the flat map on the right")
+                .accessibilityLabel("Unfolding")
+                .accessibilityValue("\(Int((model.unfold * 100).rounded())) percent")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -234,6 +238,7 @@ struct StoryCard: View {
                 }
                 .buttonStyle(.borderless)
                 .help(model.showStory ? "Hide the story" : "How this map is cut")
+                .accessibilityLabel(model.showStory ? "Hide the Story" : "Show the Story")
             }
             Text(d.summary).font(.subheadline).foregroundStyle(.secondary)
             if model.showStory {
@@ -411,6 +416,8 @@ struct TimeScrubber: View {
                    in: -86_400...86_400)
                 .frame(width: 150)
                 .help("Scrub through the day: watch the night and the seams move")
+                .accessibilityLabel("Time")
+                .accessibilityValue(offsetText)
             Text(offsetText).monospacedDigit().frame(width: 58, alignment: .leading)
             Button {
                 model.toggleTimeLapse()
@@ -418,6 +425,7 @@ struct TimeScrubber: View {
                 Image(systemName: model.isTimeLapse ? "pause.fill" : "forward.fill")
             }
             .help(model.isTimeLapse ? "Stop the time-lapse" : "Time-lapse: an hour a second; watch the seams and the night sweep round")
+            .accessibilityLabel(model.isTimeLapse ? "Stop the Time-Lapse" : "Time-Lapse")
             Button("Now") {
                 if model.isTimeLapse { model.toggleTimeLapse() }
                 model.timeOffset = 0
