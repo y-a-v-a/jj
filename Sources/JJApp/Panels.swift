@@ -280,6 +280,7 @@ struct ColoringPicker: View {
 struct ExportMenu: View {
     let model: AppModel
     @State private var isExporting = false
+    @State private var showPaper = false
 
     var body: some View {
         Menu {
@@ -287,12 +288,22 @@ struct ExportMenu: View {
             Button("PNG Image (8K)…") { export(width: 7680) }
             Button("Unfolding Animation (GIF)…") { exportGIF() }
             Divider()
+            Button("Paper Globe (PDF)…") { showPaper = true }
+            Divider()
             Button("Copy Image") { copy() }
         } label: {
             Label(isExporting ? "Exporting…" : "Export", systemImage: "square.and.arrow.up")
         }
         .help("Export the map")
         .disabled(model.state == nil || isExporting)
+        .sheet(isPresented: $showPaper) { PaperSheet(model: model) }
+        .task {
+            // For demos and checks: -showPaper YES.
+            if UserDefaults.standard.bool(forKey: "showPaper") {
+                try? await Task.sleep(for: .seconds(2))
+                showPaper = true
+            }
+        }
     }
 
     /// What an export needs, captured on the main actor.

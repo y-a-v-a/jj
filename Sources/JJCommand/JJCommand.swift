@@ -14,7 +14,7 @@ struct JJCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj",
         abstract: "Myriahedral maps of the Earth, after Jarke J. van Wijk (2008).",
-        subcommands: [Layouts.self, Render.self, Stats.self, Gallery.self, Animate.self, Icon.self, Probe.self])
+        subcommands: [Layouts.self, Render.self, Paper.self, Stats.self, Gallery.self, Animate.self, Icon.self, Probe.self])
 }
 
 /// Options shared by the commands that build a map.
@@ -47,7 +47,8 @@ struct MapOptions: ParsableArguments {
         return d
     }
 
-    func build(_ engine: MapEngine) throws -> MapState {
+    /// - Parameter defaultMesh: the mesh when none is given, if not the layout's own.
+    func build(_ engine: MapEngine, defaultMesh: (LayoutDescriptor) -> MeshKind? = { _ in nil }) throws -> MapState {
         guard let layout = LayoutCatalog.layout(id: layout) else {
             throw ValidationError("unknown layout \(self.layout); try `jj layouts`")
         }
@@ -64,8 +65,52 @@ struct MapOptions: ParsableArguments {
         let kind = try mesh.map { m -> MeshKind in
             guard let k = MeshKind(argument: m) else { throw ValidationError("bad mesh \(m)") }
             return k
-        } ?? layout.descriptor.preferredMesh
+        } ?? defaultMesh(layout.descriptor) ?? layout.descriptor.preferredMesh
         return try engine.build(layout, parameters: parameters, mesh: MeshSpec(kind))
+    }
+}
+
+struct Paper: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Make a paper globe to print, cut out and fold (PDF).")
+
+    @OptionGroup var map: MapOptions
+
+    @Option(name: .shortAndLong, help: "Output PDF file.")
+    var output = "globe.pdf"
+
+    @Option(help: "Without --mesh: simple (about 80 faces), detailed (320) or fine (720).")
+    var detail = "detailed"
+
+    @Option(help: "Diameter of the folded globe in centimetres.")
+    var diameter = 12.0
+
+    @Option(help: "Paper: a4, a3, letter or tabloid.")
+    var paper = "a4"
+
+    @Option(help: "Palette: \(Palette.all.map(\.id).joined(separator: ", ")).")
+    var palette = "vanwijk"
+
+    @Option(help: "Resolution of the map imagery.")
+    var dpi = 300.0
+
+    func run() throws {
+        guard let detail = PaperGlobe.Detail(rawValue: detail) else { throw ValidationError("bad detail \(detail)") }
+        guard let sheet = PaperNet.Paper(rawValue: paper) else { throw ValidationError("bad paper \(paper)") }
+        guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
+        let start = Date()
+        let state = try map.build(try map.engine()) { PaperGlobe.mesh(for: $0, detail: detail) }
+        let renderer = try MapRenderer()
+        let settings = MapExport.settings(for: state, palette: palette, dark: false, width: 1000, height: 1000,
+                                          date: try map.resolvedDate())
+        let options = PaperNet.Options(sheet: sheet.size, diameter: diameter * 10)
+        let result = try PaperGlobe.make(state, options: options, renderer: renderer, settings: settings,
+                                         title: state.layout.title, dpi: dpi)
+        try result.pdf.write(to: URL(fileURLWithPath: output))
+        let net = result.net
+        print(String(format: "%@: %d faces in %d pieces on %d %@ sheets; %d seams: %d tabs, %d slits, %d loose · %.1f s → %@",
+                     state.layout.title, state.mesh.cellCount, net.pieces.count, net.sheetCount, sheet.title,
+                     net.seams.count, net.seams.count - net.slits - net.looseSeams, net.slits, net.looseSeams,
+                     Date().timeIntervalSince(start), output))
     }
 }
 

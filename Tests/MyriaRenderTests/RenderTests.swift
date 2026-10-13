@@ -118,6 +118,44 @@ struct RenderTests {
         }
     }
 
+    /// A paper globe: one PDF page per sheet, and the map printed on the
+    /// pieces in the right amounts (land red, sea blue: 29 % land on paper
+    /// too).
+    @Test func paperGlobePrintsTheWholeWorld() throws {
+        let layout = try #require(LayoutCatalog.layout(id: "coastline"))
+        let state = try Visual.build("coastline", mesh: PaperGlobe.mesh(for: layout.descriptor, detail: .detailed))
+        let options = PaperNet.Options(sheet: PaperNet.Paper.a4.size, diameter: 120)
+        var settings = MapExport.settings(for: state, palette: .vanWijk, dark: false, width: 1000, height: 1000, date: Visual.date)
+        func make(_ settings: FrameSettings) throws -> PaperGlobe.Result {
+            Visual.lock.lock()
+            defer { Visual.lock.unlock() }
+            return try PaperGlobe.make(state, options: options, renderer: Visual.renderer, settings: settings, title: "Coastlines", dpi: 150)
+        }
+        let printed = try make(settings)
+        let document = try #require(CGDataProvider(data: printed.pdf as CFData).flatMap(CGPDFDocument.init))
+        #expect(document.numberOfPages == printed.net.sheetCount)
+        let box = try #require(document.page(at: 1)).getBoxRect(.mediaBox)
+        #expect(abs(box.width - 210 * 72 / 25.4) < 0.5 && abs(box.height - 297 * 72 / 25.4) < 0.5)
+        try Visual.save(Pixels(try #require(PaperGlobe.page(printed.pdf, index: 0, width: 1200))), "paper-globe")
+
+        var style = Palette.vanWijk.light
+        style.land = RGBA(1, 0, 0)
+        style.ocean = RGBA(0, 0, 1)
+        style.hillshade = 0
+        settings.style = style
+        settings.coloring = .landSea
+        settings.layers = [.land]
+        let painted = try make(settings)
+        var land = 0, sea = 0
+        for sheet in 0..<painted.net.sheetCount {
+            let page = Pixels(try #require(PaperGlobe.page(painted.pdf, index: sheet, width: 1400)))
+            land += page.count { $0.0 > 200 && $0.1 < 60 && $0.2 < 60 }
+            sea += page.count { $0.2 > 200 && $0.0 < 60 && $0.1 < 60 }
+        }
+        let share = Double(land) / Double(land + sea)
+        #expect(abs(share - 0.292) < 0.03, "land share on paper \(share)")
+    }
+
     /// Closed, the map is the globe: a disc filling π/4 of its bounding square.
     @Test func foldsIntoAGlobe() throws {
         let state = try Visual.build("geo-continents")
