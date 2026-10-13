@@ -84,6 +84,7 @@ shoreline of the ocean that may once have been there.
 ![JJ in dark mode](docs/app-dark.jpg)
 
 - A gallery of every layout with live thumbnails, for the Earth, the Moon and Mars.
+  Every gesture and shortcut is in Help → JJ Help (⌘?).
 - Changing layout **folds the map back into the globe, swaps the cut while
   closed, and unfolds the new map** (every layout closes into the same
   globe, so the swap is invisible), the globe turning to its new centre.

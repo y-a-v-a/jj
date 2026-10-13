@@ -26,6 +26,10 @@ struct JJApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About JJ") { openWindow(id: "about") }
             }
+            CommandGroup(replacing: .help) {
+                Button("JJ Help") { openWindow(id: "help") }
+                    .keyboardShortcut("?", modifiers: .command)
+            }
             CommandGroup(replacing: .printItem) {
                 Button("Print a Paper Globe…") { model.isShowingPaper = true }
                     .keyboardShortcut("p", modifiers: .command)
@@ -76,6 +80,10 @@ struct JJApp: App {
         }
         Window("About JJ", id: "about") {
             AboutView()
+        }
+        .windowResizability(.contentSize)
+        Window("JJ Help", id: "help") {
+            HelpView()
         }
         .windowResizability(.contentSize)
         Settings {
