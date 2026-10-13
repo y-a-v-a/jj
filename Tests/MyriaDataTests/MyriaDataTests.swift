@@ -199,3 +199,33 @@ struct EarthDatasetTests {
         #expect(nearest.place.name == "Paris")
     }
 }
+
+@Suite("Other worlds")
+struct OtherWorldTests {
+    @Test func marsHasItsLandmarks() throws {
+        let mars = BodyData.mars
+        let elevation = try mars.field(FieldKey("elevation"))
+        #expect(elevation.value(latitude: 18.65, longitude: -133.8) > 18_000)   // Olympus Mons
+        #expect(elevation.value(latitude: -42.4, longitude: 70.5) < -6_000)     // Hellas Planitia
+        let olympus = try #require(try mars.features().features.first { $0.name == "Olympus Mons" })
+        #expect(abs(olympus.lat - 18.65) < 0.5 && abs(olympus.lon + 133.8) < 0.5)
+    }
+
+    @Test func theMoonHasItsLandmarks() throws {
+        let moon = BodyData.moon
+        let elevation = try moon.field(FieldKey("elevation"))
+        // South Pole–Aitken, the largest basin, lies far below the highlands.
+        #expect(elevation.value(latitude: -53, longitude: -169) < -5_000)
+        #expect(try moon.features().features.contains { $0.name == "Tycho" })
+        // High ground is about half the surface, by construction of f.
+        let f = try moon.field(FieldKey("landDensity", "10"))
+        #expect(abs(f.quantile(0.5) - 0.5) < 0.2)
+    }
+
+    @Test func worldsHaveTheirOwnCatalogues() {
+        #expect(Body.all.map(\.id) == ["earth", "moon", "mars"])
+        #expect(!Body.moon.hasSeas && !Body.mars.hasSeas && Body.earth.hasSeas)
+        #expect(Body.mars.availableFields.contains { $0.id == "craters" })
+        #expect(!Body.mars.has(.land))
+    }
+}

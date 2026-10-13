@@ -233,3 +233,47 @@ struct UnfoldedMapTests {
         #expect(projection.overlapFraction() < 0.02)
     }
 }
+
+@Suite("Other worlds unfold too")
+struct OtherWorldLayoutTests {
+    static let cases: [(String, String)] = [Body.moon, Body.mars].flatMap { body in
+        LayoutCatalog.available(for: body).map { (body.id, $0.descriptor.id) }
+    }
+
+    @Test(arguments: cases)
+    func cutsFormASpanningTree(body: String, id: String) throws {
+        let world = try #require(Body.all.first { $0.id == body })
+        let data = BodyData.of(world)
+        let layout = try #require(LayoutCatalog.layout(id: id))
+        var p = layout.defaultParameters(for: world)
+        p["optimise"] = 0
+        p["levels"] = 2
+        let spec = try layout.mesh(for: p, chosen: MeshSpec(.graticule(step: 6)), body: data)
+        let context = try LayoutContext(spec: spec, data: data)
+        let cut = try layout.cut(context, parameters: p)
+        #expect(cut.hinges.filter { !$0 }.count == context.mesh.polyhedron.vertexCount - 1)
+    }
+
+    @Test func noEarthOnlyLayoutsElsewhere() {
+        let moon = Set(LayoutCatalog.available(for: .moon).map(\.descriptor.id))
+        for id in ["timezones", "coastline", "day-night", "rainfall", "countries"] { #expect(!moon.contains(id)) }
+        for id in ["waterline", "craters", "graticular-polyconic", "platonic", "geo-coastline"] { #expect(moon.contains(id)) }
+    }
+
+    /// On Mars the waterline at −3.8 km cuts between the northern plains
+    /// and the southern highlands.
+    @Test func marsWaterlineFollowsItsShore() throws {
+        let data = BodyData.mars
+        let layout = WaterlineLayout()
+        let p = layout.defaultParameters(for: .mars)
+        #expect(p["level"] == -3800)
+        let context = try LayoutContext(spec: MeshSpec(.geodesic(frequency: 16)), data: data)
+        let cut = try layout.cut(context, parameters: p)
+        let e = try context.edgeValues(FieldKey("elevation"))
+        let near = e.indices.filter { abs(e[$0] + 3800) < 300 }
+        let nearShare = Double(near.filter { !cut.hinges[$0] }.count) / Double(near.count)
+        let overall = Double(cut.hinges.filter { !$0 }.count) / Double(cut.hinges.count)
+        // A third of all edges are cut anywhere; along the shore far more.
+        #expect(nearShare > 1.4 * overall)
+    }
+}
