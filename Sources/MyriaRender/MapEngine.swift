@@ -156,7 +156,8 @@ public final class MapEngine: Sendable {
         lap("unfold")
         let poses = MapPoses(projection: projection)
         lap("fold")
-        return MapState(layout: layout.descriptor, parameters: parameters, appearance: layout.appearance(parameters),
+        return MapState(layout: layout.descriptor(for: data.body), parameters: parameters,
+                        appearance: layout.appearance(parameters, for: data.body),
                         context: context, overlays: overlays, cut: cut, projection: projection, poses: poses,
                         timings: timings)
     }

@@ -28,7 +28,7 @@ uninterrupted map hides.
 
 JJ ("Jarke Jan") takes that machinery and asks what else the cuts can say.
 In [myriamap](../myriamap), its predecessor, the seams followed the
-timezones. In JJ, timezones are one layout among twenty-five. The planet
+timezones. In JJ, timezones are one layout among twenty-six. The planet
 comes apart along its coastlines, rivers, plates, ocean middles and
 waterlines. The human world comes apart along nations, crowds and air
 routes. The sky comes apart along winds, rain and the line between day and
@@ -58,6 +58,7 @@ night. And all of van Wijk's own figures are redrawn, live, on today's GPUs.
 | | Recursive Subdivision | the self-similar cuts of subdivided solids with the w₀/w₁/w_c weights (figure 5) |
 | | Aligned with Continents, North Up South Down, Continents and Oceans, The Coastline of the Earth | f, van Wijk's land density, a land raster convolved with a Gaussian on the sphere (figure 12) |
 | | Point of View | the distance from a point, plus chance (figure 14) |
+| **Laboratory** | Field Lab | any field the world has (height, rain, wind, people, air traffic, distance to the coast, craters…), kept whole where high or low, or torn along a contour |
 
 My own four additions to the user's list are **Prevailing Winds** (a nod to
 van Wijk the flow visualiser), **Day and Night** (cuts that move in real

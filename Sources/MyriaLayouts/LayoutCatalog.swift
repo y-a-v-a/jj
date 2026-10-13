@@ -35,6 +35,8 @@ public enum LayoutCatalog {
         GeoAlignedLayout(.separated),
         GeoAlignedLayout(.coastline),
         PointOfViewLayout(),
+        // Laboratory
+        FieldLabLayout(),
     ]
 
     public static func layout(id: String) -> (any Layout)? {

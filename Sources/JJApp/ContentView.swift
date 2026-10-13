@@ -274,8 +274,10 @@ struct Legend: View {
     private var content: AnyView? {
         let style = model.style
         let data = BodyData.of(model.body)
-        if case .field(let key) = model.coloring, let d = model.body.field(key.id), data.isFieldLoaded(key),
-           let field = try? data.field(key) {
+        // (Height on a world without seas is drawn as its relief: no scale.)
+        let isRelief = !model.body.hasSeas && model.body.relief != nil
+        if case .field(let key) = model.coloring, !(isRelief && key.id == "elevation"), let d = model.body.field(key.id),
+           data.isFieldLoaded(key), let field = try? data.field(key) {
             let range = MapRenderer.range(of: key, field: field, scale: d.scale, data: data)
             let colors = style.colormap(d.colormap).table(24).map { Color(rgba: $0) }
             return AnyView(VStack(alignment: .leading, spacing: 4) {

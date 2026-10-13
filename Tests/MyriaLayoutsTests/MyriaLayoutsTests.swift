@@ -210,6 +210,19 @@ struct ThemeTests {
     }
 
     /// "For the tetrahedron a perfect ... mapping is achieved." (figure 8)
+    @Test func fieldLabWeighsAnyField() throws {
+        // Kept whole where many live, the map is cut where few do; kept
+        // whole where few live, the other way round.
+        let index = try #require(Body.earth.availableFields.firstIndex { $0.id == "population" })
+        func cutAndHinged(_ mode: Int) throws -> (Double, Double) {
+            let (context, cut) = try Shared.cut("field-lab", mesh: .geodesic(frequency: 16), ["field": Double(index), "mode": Double(mode)])
+            let people = try context.edgeValues(Body.earth.availableFields[index].defaultKey)
+            return (Shared.mean(people) { !cut.hinges[$0] }, Shared.mean(people) { cut.hinges[$0] })
+        }
+        let (cutHigh, hingedHigh) = try cutAndHinged(0), (cutLow, hingedLow) = try cutAndHinged(1)
+        #expect(cutHigh < hingedHigh && cutLow > hingedLow, "\(cutHigh) \(hingedHigh) \(cutLow) \(hingedLow)")
+    }
+
     @Test func spilhausPutsAntarcticaAtSea() throws {
         // With −f the cuts run through the land, so Antarctica is torn up
         // along the map's rim; without Antarctica in f it holds together at

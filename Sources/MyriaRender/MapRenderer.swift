@@ -523,6 +523,10 @@ public final class MapRenderer {
         let folded = s.unfold < 1
         // Worlds without seas show their relief instead of land and sea.
         if !data.body.hasSeas, case .landSea = s.coloring { s.coloring = .relief }
+        // Height on a world without seas is its relief, in its own colours.
+        if !data.body.hasSeas, data.body.relief != nil, case .field(let key) = s.coloring, key.id == "elevation" {
+            s.coloring = .relief
+        }
         let px = Float(s.pixelScale * s.lineScale)
 
         var view = ViewUniforms(viewProjection: s.viewport.matrix(), viewportSize: SIMD2(Float(drawableSize.width), Float(drawableSize.height)),
@@ -543,6 +547,9 @@ public final class MapRenderer {
         // Textures: field, its colour scale, elevation and relief tints.
         var fieldTex: MTLTexture = placeholderTexture()
         var fieldLUT: MTLTexture? = lut([style.colormap(.sequential).table()])
+        // Densities fade in over the base: land and sea, or on worlds
+        // without seas their relief.
+        var reliefUnderField = false
         if case .field(let key) = s.coloring, let descriptor = data.body.field(key.id),
            let (t, field) = fieldTexture(key, data) {
             fieldTex = t
@@ -550,17 +557,18 @@ public final class MapRenderer {
             surface.fieldGrid = SIMD4(Float(field.lon0), Float(field.lat0), Float(field.dlon), Float(field.dlat))
             surface.fieldSizeRange = SIMD4(Float(field.width), Float(field.height), Float(lo), Float(hi))
             surface.fieldScale = descriptor.scale == .diverging ? 1 : 0
-            if descriptor.scale == .logarithmic {
-                // Densities fade in over land and sea.
+            if descriptor.scale == .logarithmic || descriptor.colormap == .density {
                 surface.fieldOverlay = 2
+                reliefUnderField = !data.body.hasSeas
             } else {
                 surface.baseMode = 1
             }
             fieldLUT = lut([style.colormap(descriptor.colormap).table()])
         }
-        let wantsRelief = style.hillshade > 0 || { if case .relief = s.coloring { return true }; return false }()
+        let reliefColoring = reliefUnderField || { if case .relief = s.coloring { return true }; return false }()
+        let wantsRelief = style.hillshade > 0 || reliefColoring
         var elevationTex: MTLTexture = placeholderTexture()
-        if wantsRelief, s.layers.contains(.land) || { if case .relief = s.coloring { return true }; return false }(),
+        if wantsRelief, s.layers.contains(.land) || reliefColoring,
            let (t, field) = elevationTexture(data) {
             elevationTex = t
             surface.hasElevation = 1
@@ -569,7 +577,7 @@ public final class MapRenderer {
             let exaggeration = 18 * Float(6371.0 / data.body.radius)
             surface.elevationSize = SIMD4(Float(field.width), Float(field.height), Float(style.hillshade), exaggeration)
         }
-        if case .relief = s.coloring, surface.hasElevation == 1 { surface.baseMode = 2 }
+        if reliefColoring, surface.hasElevation == 1 { surface.baseMode = 2 }
         if case .groups = s.coloring { surface.baseMode = 3 }
         var reliefLUT = lut([style.reliefSea.table(), style.reliefLand.table()])
         if let tint = data.body.relief, let (_, field) = elevationTexture(data) {

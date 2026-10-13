@@ -4,7 +4,7 @@ import MyriaData
 
 /// Where a layout appears in the gallery.
 public enum LayoutCategory: String, Sendable, CaseIterable, Hashable {
-    case planet, people, climate, worlds, homage
+    case planet, people, climate, worlds, homage, lab
 
     public var title: String {
         switch self {
@@ -13,6 +13,7 @@ public enum LayoutCategory: String, Sendable, CaseIterable, Hashable {
         case .people: "People"
         case .climate: "Sky and Climate"
         case .homage: "Van Wijk, 2008"
+        case .lab: "Laboratory"
         }
     }
 }
@@ -224,6 +225,9 @@ public protocol Layout: Sendable {
     /// The look that tells this layout's story.
     func appearance(_ parameters: LayoutParameters) -> LayoutAppearance
 
+    /// The look on a given world (by default the same everywhere).
+    func appearance(_ parameters: LayoutParameters, for body: Body) -> LayoutAppearance
+
     /// Parameter values that suit a body better than the descriptor's.
     func defaults(for body: Body) -> [String: Double]
 
@@ -237,6 +241,8 @@ extension Layout {
     public func mesh(for parameters: LayoutParameters, chosen: MeshSpec, body: BodyData) throws -> MeshSpec { chosen }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance { LayoutAppearance() }
+
+    public func appearance(_ parameters: LayoutParameters, for body: Body) -> LayoutAppearance { appearance(parameters) }
 
     public func defaults(for body: Body) -> [String: Double] { [:] }
 

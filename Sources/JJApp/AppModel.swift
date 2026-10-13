@@ -274,11 +274,11 @@ final class AppModel {
     }
 
     var coloring: LayoutAppearance.Coloring {
-        coloringOverride ?? state?.appearance.coloring ?? layout.appearance(parameters).coloring
+        coloringOverride ?? state?.appearance.coloring ?? layout.appearance(parameters, for: body).coloring
     }
 
     var layers: Set<LayerID> {
-        let appearance = state?.appearance ?? layout.appearance(parameters)
+        let appearance = state?.appearance ?? layout.appearance(parameters, for: body)
         var set = LayerID.defaults(for: appearance)
         for (layer, on) in layerOverrides {
             if on { set.insert(layer) } else { set.remove(layer) }
@@ -434,7 +434,7 @@ final class AppModel {
     }
 
     private func defaultLayers(for layout: any MapLayout, parameters: LayoutParameters) -> Set<LayerID> {
-        var set = LayerID.defaults(for: layout.appearance(parameters))
+        var set = LayerID.defaults(for: layout.appearance(parameters, for: body))
         for (layer, on) in layerOverrides {
             if on { set.insert(layer) } else { set.remove(layer) }
         }
