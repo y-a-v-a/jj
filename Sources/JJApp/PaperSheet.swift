@@ -20,6 +20,8 @@ struct PaperSheet: View {
     struct Preview {
         let pages: [NSImage]
         let summary: String
+        /// Set when the faces come out too small to fold comfortably.
+        let warning: String?
     }
 
     /// Everything the paper depends on, to rebuild the preview on change.
@@ -60,9 +62,17 @@ struct PaperSheet: View {
                     if let failure {
                         Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     } else if let preview {
-                        Text(preview.summary).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(preview.summary).foregroundStyle(.secondary)
+                            if let warning = preview.warning {
+                                Label(warning, systemImage: "scissors").foregroundStyle(.orange)
+                            }
+                        }
                     } else {
-                        Text("Unfolding…").foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Unfolding…").foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .font(.callout)
@@ -104,6 +114,8 @@ struct PaperSheet: View {
         .padding(24)
         .task(id: Choice(detail: detail, diameter: diameter, paper: paper)) {
             failure = nil
+            // Nothing to save until the preview matches the choice.
+            preview = nil
             // Let the slider settle.
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let job = job() else { return }
@@ -152,7 +164,9 @@ struct PaperSheet: View {
         let state = try job.engine.build(job.layout, parameters: job.parameters, mesh: MeshSpec(job.mesh))
         let settings = MapExport.settings(for: state, palette: job.palette, dark: false, width: 1000, height: 1000,
                                           coloring: job.coloring, layers: job.layers, date: job.date)
-        return try PaperGlobe.make(state, options: job.options, renderer: try renderer(), settings: settings,
+        // A renderer per job: renderers are not thread-safe, and a preview
+        // may still be running when the next starts or the PDF is saved.
+        return try PaperGlobe.make(state, options: job.options, renderer: try MapRenderer(), settings: settings,
                                    title: job.title, dpi: dpi)
     }
 
@@ -163,20 +177,10 @@ struct PaperSheet: View {
             .map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
         let tabs = net.seams.filter { $0.tabFace != nil }.count
         let summary = "\(net.pieces.count) \(net.pieces.count == 1 ? "piece" : "pieces") on \(net.sheetCount) \(net.sheetCount == 1 ? "sheet" : "sheets"), \(tabs) glue tabs."
-        return Preview(pages: pages, summary: summary)
-    }
-
-    /// One renderer for every paper globe: the shaders compile once.
-    nonisolated(unsafe) private static var shared: MapRenderer?
-    private static let lock = NSLock()
-
-    nonisolated static func renderer() throws -> MapRenderer {
-        lock.lock()
-        defer { lock.unlock() }
-        if let shared { return shared }
-        let r = try MapRenderer()
-        shared = r
-        return r
+        let warning = net.shortestSeam < 5
+            ? "Some edges are only \(String(format: "%.1f", net.shortestSeam)) mm long: a larger globe or fewer faces folds more easily."
+            : nil
+        return Preview(pages: pages, summary: summary, warning: warning)
     }
 
     private func save() {

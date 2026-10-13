@@ -173,6 +173,22 @@ public enum PaperGlobe {
         else { throw RenderError.allocation("PDF context") }
         let mesh = state.mesh
         let ink = CGColor(gray: 0.1, alpha: 1), grey = CGColor(gray: 0.45, alpha: 1)
+        // Each piece's folds and seams, found once.
+        var foldsOf = Array(repeating: [Int](), count: net.pieces.count)
+        for e in net.folds { foldsOf[net.pieceOf[mesh.topology.edges[e].leftFace]].append(e) }
+        var seamsOf = Array(repeating: [Int](), count: net.pieces.count)
+        for (i, seam) in net.seams.enumerated() {
+            let edge = mesh.topology.edges[seam.edge]
+            let (l, r) = (net.pieceOf[edge.leftFace], net.pieceOf[edge.rightFace])
+            seamsOf[l].append(i)
+            if r != l { seamsOf[r].append(i) }
+        }
+        // One size for both numbers of a seam, from the edge on paper.
+        func numberSize(_ seam: PaperNet.Seam) -> Double {
+            let edge = mesh.topology.edges[seam.edge]
+            let (a, b) = net.segment(of: seam.edge, in: edge.leftFace, mesh: mesh)
+            return max(1.1, min(3.2, (b - a).length * o.scale * 0.16, o.tabHeight * 0.6))
+        }
         for sheet in 0..<net.sheetCount {
             ctx.beginPDFPage(nil)
             ctx.saveGState()
@@ -216,14 +232,14 @@ public enum PaperGlobe {
                 ctx.setLineWidth(0.16)
                 ctx.setLineDash(phase: 0, lengths: [1.1, 0.8])
                 let inPiece = Set(piece.faces)
-                for e in net.folds {
+                let seams = seamsOf[p].map { net.seams[$0] }
+                for e in foldsOf[p] {
                     let edge = mesh.topology.edges[e]
-                    guard inPiece.contains(edge.leftFace) else { continue }
                     let (a, b) = net.segment(of: e, in: edge.leftFace, mesh: mesh)
                     ctx.move(to: sheetPoint(a))
                     ctx.addLine(to: sheetPoint(b))
                 }
-                for seam in net.seams where seam.tabFace.map(inPiece.contains) == true {
+                for seam in seams where seam.tabFace.map(inPiece.contains) == true {
                     ctx.move(to: sheetPoint(seam.tab[0]))
                     ctx.addLine(to: sheetPoint(seam.tab[1]))
                 }
@@ -235,7 +251,7 @@ public enum PaperGlobe {
                 ctx.setLineWidth(0.22)
                 ctx.setLineJoin(.round)
                 ctx.setStrokeColor(ink)
-                for seam in net.seams {
+                for seam in seams {
                     guard let f = seam.tabFace, inPiece.contains(f) else { continue }
                     let tab = seam.tab
                     ctx.setFillColor(CGColor(gray: 0.9, alpha: 1))
@@ -245,11 +261,10 @@ public enum PaperGlobe {
                     for q in tab[2...] { ctx.addLine(to: sheetPoint(q)) }
                     ctx.addLine(to: sheetPoint(tab[0]))
                     ctx.strokePath()
-                    let base = (place.apply(tab[1]) - place.apply(tab[0])).length
                     label(ctx, seam.number, at: place.apply(Planar.centroid(tab)), along: place.apply(tab[1]) - place.apply(tab[0]),
-                          size: min(3.4, base * 0.2, o.tabHeight * 0.6), boxed: false)
+                          size: numberSize(seam), boxed: false)
                 }
-                for seam in net.seams {
+                for seam in seams {
                     let edge = mesh.topology.edges[seam.edge]
                     for f in [edge.leftFace, edge.rightFace] where inPiece.contains(f) {
                         let (a, b) = net.segment(of: seam.edge, in: f, mesh: mesh)
@@ -270,15 +285,14 @@ public enum PaperGlobe {
                 ctx.restoreGState()
 
                 // Numbers on the receiving edges, just inside the face.
-                for seam in net.seams where seam.isNumbered {
+                for seam in seams where seam.isNumbered {
                     let edge = mesh.topology.edges[seam.edge]
                     for f in [edge.leftFace, edge.rightFace] where inPiece.contains(f) && seam.tabFace != f {
                         let (a, b) = net.segment(of: seam.edge, in: f, mesh: mesh)
                         let pa = place.apply(a), pb = place.apply(b)
                         let centre = place.apply(Planar.centroid(net.polygons[f]))
                         let mid = (pa + pb) / 2
-                        let size = min(3.2, (pb - pa).length * 0.16)
-                        guard size > 0.8 else { continue }
+                        let size = numberSize(seam)
                         let inward = (centre - mid).normalized
                         let depth = min(size * 0.95 + 0.4, (centre - mid).length * 0.6)
                         label(ctx, seam.number, at: mid + inward * depth, along: pb - pa, size: size, boxed: true)

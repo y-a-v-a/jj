@@ -51,12 +51,13 @@ struct PaperNetTests {
             }
             #expect(p.sheet < net.sheetCount)
         }
-        // Pieces on a sheet keep apart; faces in a piece do not overlap.
+        // Pieces on a sheet keep apart; faces in a piece do not overlap (by
+        // more than the twentieth of a millimetre paper forgives).
         for sheet in 0..<net.sheetCount {
             let placed = net.pieces(onSheet: sheet).flatMap { p in net.pieces[p].faces.map { (p, net.polygons[$0].map(net.pieces[p].placement.apply)) } }
             for i in placed.indices {
                 for j in placed.indices where j > i {
-                    #expect(!PaperNet.overlaps(placed[i].1, placed[j].1, tolerance: 1e-6), "\(name): faces overlap on sheet \(sheet)")
+                    #expect(!PaperNet.overlaps(placed[i].1, placed[j].1, tolerance: 0.05), "\(name): faces overlap on sheet \(sheet)")
                 }
             }
         }
@@ -64,7 +65,7 @@ struct PaperNetTests {
         for seam in net.seams {
             guard let f = seam.tabFace else { continue }
             for g in net.pieces[net.pieceOf[f]].faces {
-                #expect(!PaperNet.overlaps(seam.tab, net.polygons[g], tolerance: 1e-9), "\(name): tab on face \(f) covers face \(g)")
+                #expect(!PaperNet.overlaps(seam.tab, net.polygons[g], tolerance: 0.02 / o.scale), "\(name): tab on face \(f) covers face \(g)")
             }
         }
         // Numbers pair tabs with edges, each used once.
@@ -86,7 +87,7 @@ struct PaperNetTests {
         // paper, overlapping faces go to different pieces.
         let (projection, net) = try Self.net(.geodesic(frequency: 10), diameter: 300, seed: 7)
         try #require(!projection.overlappingFaces().isEmpty, "this net needs a fold-over to test")
-        for piece in net.pieces { #expect(PaperNet.firstOverlap(piece.faces, net.polygons) == nil) }
+        for piece in net.pieces { #expect(PaperNet.firstOverlap(piece.faces, net.polygons, tolerance: 0.05 / net.options.scale) == nil) }
     }
 
     @Test func refusesFacesLargerThanTheSheet() {

@@ -314,6 +314,16 @@ struct GazetteerTests {
         #expect(earth.search("york").contains { $0.name == "New York" })
     }
 
+    @Test func everyEntryIsItsOwn() {
+        // Three Albanys in the United States: told apart, never confused.
+        for world in [BodyData.earth, .moon, .mars] {
+            let entries = Gazetteer.of(world).entries
+            #expect(Set(entries.map { $0.id }).count == entries.count)
+        }
+        let albanys = Gazetteer.of(.earth).search("albany", limit: 20).filter { $0.name == "Albany" }
+        #expect(Set(albanys.map { $0.detail }).count == albanys.count)
+    }
+
     @Test func countriesAndOceansComeFirst() throws {
         let earth = Gazetteer.of(.earth)
         #expect(earth.search("netherlands").first?.kind == .country)

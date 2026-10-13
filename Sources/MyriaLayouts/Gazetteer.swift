@@ -14,7 +14,7 @@ public struct Gazetteer: Sendable {
         public let detail: String
         public let location: GeoPoint
 
-        public var id: String { "\(kind.rawValue):\(name):\(detail)" }
+        public var id: String { "\(kind.rawValue):\(name):\(detail):\(location.latitude),\(location.longitude)" }
 
         public init(kind: Kind, name: String, detail: String, location: GeoPoint) {
             self.kind = kind
@@ -31,8 +31,18 @@ public struct Gazetteer: Sendable {
     let keys: [String]
 
     public init(entries: [Entry]) {
-        self.entries = entries
-        keys = entries.map { Self.fold($0.name) }
+        // Places of one name in one country (three Albanys in the United
+        // States) are told apart by where they are.
+        // The same place listed twice is listed once.
+        var listed = Set<String>()
+        let entries = entries.filter { listed.insert($0.id).inserted }
+        var seen = [String: Int]()
+        for e in entries { seen[e.name + "\u{1}" + e.detail, default: 0] += 1 }
+        self.entries = entries.map { e in
+            guard seen[e.name + "\u{1}" + e.detail]! > 1 else { return e }
+            return Entry(kind: e.kind, name: e.name, detail: "\(e.detail), \(e.location.description)", location: e.location)
+        }
+        keys = self.entries.map { Self.fold($0.name) }
     }
 
     /// The gazetteer of a world, from whichever of its datasets name places.

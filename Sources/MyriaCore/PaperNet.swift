@@ -104,7 +104,7 @@ public struct PaperNet: Sendable {
 
         public var description: String {
             switch self {
-            case .tooLarge(let d): "A face does not fit on the sheet; choose a globe of at most \(Int(d)) mm"
+            case .tooLarge(let d): "A face does not fit on the sheet; choose a globe of at most \(Int(d / 10)) cm"
             }
         }
     }
@@ -119,6 +119,9 @@ public struct PaperNet: Sendable {
     /// Edges creased inside pieces (every edge that is not a seam).
     public let folds: [Int]
     public let sheetCount: Int
+    /// The shortest seam on paper, in millimetres: below about 5 mm folding
+    /// and numbering get fiddly.
+    public let shortestSeam: Double
     /// Face polygons in map units, as unfolded.
     public let polygons: [[Vec2]]
 
@@ -146,12 +149,16 @@ public struct PaperNet: Sendable {
         var stack = [Array(0..<faceCount)]
         while let faces = stack.popLast() {
             let fits = Self.bestRotation(Self.hull(faces.flatMap { polygons[$0] }.map { $0 * s }), fitting: fitBox) != nil
-            let overlap = Self.firstOverlap(faces, polygons)
+            // Overlaps of a twentieth of a millimetre on paper do not count.
+            let overlap = Self.firstOverlap(faces, polygons, tolerance: 0.05 / s)
             if fits && overlap == nil {
                 parts.append(faces)
                 continue
             }
-            guard let (edge, a, b) = Self.split(faces, overlap: overlap, mesh: mesh, isHinge: isHinge, polygons: polygons) else {
+            // Without an overlap to undo, cut off about as much as fits on a sheet.
+            let sheetful = 0.4 * fitBox.x * fitBox.y / (s * s)
+            guard let (edge, a, b) = Self.split(faces, overlap: overlap, target: sheetful, mesh: mesh, isHinge: isHinge,
+                                                polygons: polygons) else {
                 parts.append(faces)
                 continue
             }
@@ -173,7 +180,7 @@ public struct PaperNet: Sendable {
         // corners. Seams with the fewest options choose first, each tab
         // clearing the tabs chosen before it.
         let grid = FaceGrid(polygons: polygons)
-        let tolerance = 1e-9
+        let tolerance = 0.02 / s
         var folds: [Int] = [], seamEdges: [Int] = []
         for e in topology.edges.indices {
             if isHinge[e] { folds.append(e) } else { seamEdges.append(e) }
@@ -198,14 +205,20 @@ public struct PaperNet: Sendable {
             return found
         }
         var chosen = [Int: (face: Int, tab: [Vec2])]()
-        var tabsOfPiece = Array(repeating: Set<Int>(), count: parts.count)
+        // Placed tabs by grid cell (the face grid's cells), for quick conflicts.
+        var tabCells = [Int: Set<Int>]()
+        func cells(_ tab: [Vec2]) -> [Int] { grid.cellIndices(Rect2(bounding: tab)) }
         func blockers(_ tab: [Vec2], in piece: Int, except: Int = -1) -> [Int] {
-            tabsOfPiece[piece].filter { $0 != except && Self.overlaps(tab, chosen[$0]!.tab, tolerance: tolerance) }
+            var near = Set<Int>()
+            for c in cells(tab) { near.formUnion(tabCells[c] ?? []) }
+            return near.filter { j in
+                j != except && pieceOf[chosen[j]!.face] == piece && Self.overlaps(tab, chosen[j]!.tab, tolerance: tolerance)
+            }
         }
         func place(_ i: Int, _ option: (face: Int, tab: [Vec2])) {
-            if let old = chosen[i] { tabsOfPiece[pieceOf[old.face]].remove(i) }
+            if let old = chosen[i] { for c in cells(old.tab) { tabCells[c]?.remove(i) } }
             chosen[i] = option
-            tabsOfPiece[pieceOf[option.face]].insert(i)
+            for c in cells(option.tab) { tabCells[c, default: []].insert(i) }
         }
         for i in seamEdges.indices.sorted(by: { (choices[$0].count, $0) < (choices[$1].count, $1) }) {
             if let option = choices[i].first(where: { blockers($0.tab, in: pieceOf[$0.face]).isEmpty }) { place(i, option) }
@@ -242,12 +255,19 @@ public struct PaperNet: Sendable {
                               isSlit: isSlit))
         }
         self.folds = folds
+        var tabsOf = Array(repeating: [[Vec2]](), count: parts.count)
+        for option in chosen.values { tabsOf[pieceOf[option.face]].append(option.tab) }
+        shortestSeam = seams.map { seam -> Double in
+            let edge = topology.edges[seam.edge]
+            let (a, b) = Self.segment(of: edge, in: edge.leftFace, mesh: mesh, polygons: polygons)
+            return (b - a).length * s
+        }.min() ?? 0
 
         // Turn each piece to its most compact orientation and pack shelves.
         var placements: [Placement] = []
         var sizes: [Vec2] = []
         for (p, faces) in parts.enumerated() {
-            let points = (faces.flatMap { polygons[$0] } + tabsOfPiece[p].flatMap { chosen[$0]!.tab }).map { $0 * s }
+            let points = (faces.flatMap { polygons[$0] } + tabsOf[p].flatMap { $0 }).map { $0 * s }
             let hull = Self.hull(points)
             let rotation = Self.bestRotation(hull, fitting: options.content) ?? 0
             let rotated = Rect2(bounding: hull.map { Self.rotate($0, rotation) })
@@ -378,23 +398,24 @@ public struct PaperNet: Sendable {
     }
 
     /// Some pair of faces lying on top of each other, if any.
-    static func firstOverlap(_ faces: [Int], _ polygons: [[Vec2]]) -> (Int, Int)? {
+    static func firstOverlap(_ faces: [Int], _ polygons: [[Vec2]], tolerance: Double) -> (Int, Int)? {
         let boxes = faces.map { Rect2(bounding: polygons[$0]) }
         let order = faces.indices.sorted { boxes[$0].minX < boxes[$1].minX }
         for (k, i) in order.enumerated() {
             for j in order[(k + 1)...] {
                 if boxes[j].minX >= boxes[i].maxX { break }
                 guard boxes[j].minY < boxes[i].maxY, boxes[i].minY < boxes[j].maxY else { continue }
-                if overlaps(polygons[faces[i]], polygons[faces[j]], tolerance: 1e-7) { return (faces[i], faces[j]) }
+                if overlaps(polygons[faces[i]], polygons[faces[j]], tolerance: tolerance) { return (faces[i], faces[j]) }
             }
         }
         return nil
     }
 
     /// Splits a piece in two at a hinge: on the path between two overlapping
-    /// faces if there are any, else where the halves are most equal in area.
-    /// Cells (hexagons) are never split.
-    static func split(_ faces: [Int], overlap: (Int, Int)?, mesh: MyriahedralMesh, isHinge: [Bool],
+    /// faces if there are any, else where one part comes closest to `target`
+    /// area (about a sheetful) without exceeding half. Cells (hexagons) are
+    /// never split.
+    static func split(_ faces: [Int], overlap: (Int, Int)?, target: Double, mesh: MyriahedralMesh, isHinge: [Bool],
                       polygons: [[Vec2]]) -> (edge: Int, [Int], [Int])? {
         let topology = mesh.topology
         let inPiece = Set(faces)
@@ -434,7 +455,10 @@ public struct PaperNet: Sendable {
             candidates = Array(order.dropFirst())
         }
         candidates = candidates.filter { !mesh.isInternalEdge[parent[$0]!.edge] }
-        guard let child = candidates.min(by: { abs(total / 2 - subtree[$0]!) < abs(total / 2 - subtree[$1]!) }) else { return nil }
+        // The smaller side of each candidate cut, aimed at a sheetful.
+        let aim = overlap == nil ? min(target, total / 2) : total / 2
+        func part(_ f: Int) -> Double { min(subtree[f]!, total - subtree[f]!) }
+        guard let child = candidates.min(by: { abs(aim - part($0)) < abs(aim - part($1)) }) else { return nil }
         let cut = parent[child]!.edge
         // The child's subtree.
         var part: [Int] = [child]
@@ -524,14 +548,20 @@ struct FaceGrid {
         self.cells = cells
     }
 
+    /// The grid cells a rectangle touches (clamped to the grid).
+    func cellIndices(_ r: Rect2) -> [Int] {
+        let c0 = min(cols - 1, max(0, Int(((r.minX - bounds.minX) / cell).rounded(.down))))
+        let r0 = min(rows - 1, max(0, Int(((r.minY - bounds.minY) / cell).rounded(.down))))
+        let c1 = min(cols - 1, max(0, Int(((r.maxX - bounds.minX) / cell).rounded(.down))))
+        let r1 = min(rows - 1, max(0, Int(((r.maxY - bounds.minY) / cell).rounded(.down))))
+        var out: [Int] = []
+        for row in r0...r1 { for col in c0...c1 { out.append(row * cols + col) } }
+        return out
+    }
+
     func candidates(_ r: Rect2) -> [Int] {
-        let c0 = max(0, Int(((r.minX - bounds.minX) / cell).rounded(.down)))
-        let r0 = max(0, Int(((r.minY - bounds.minY) / cell).rounded(.down)))
-        let c1 = min(cols - 1, Int(((r.maxX - bounds.minX) / cell).rounded(.down)))
-        let r1 = min(rows - 1, Int(((r.maxY - bounds.minY) / cell).rounded(.down)))
-        guard c0 <= c1, r0 <= r1 else { return [] }
         var out = Set<Int>()
-        for row in r0...r1 { for col in c0...c1 { out.formUnion(cells[row * cols + col]) } }
+        for c in cellIndices(r) { out.formUnion(cells[c]) }
         return Array(out)
     }
 }
