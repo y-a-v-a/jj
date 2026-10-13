@@ -162,7 +162,9 @@ public struct GridFile: Sendable {
         if header.compression == "lzfse" {
             payload = try (payload as NSData).compressed(using: .lzfse) as Data
         }
-        let json = try JSONEncoder().encode(header)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let json = try encoder.encode(header)
         var out = Data(Self.magic)
         withUnsafeBytes(of: UInt32(json.count).littleEndian) { out.append(contentsOf: $0) }
         out.append(json)

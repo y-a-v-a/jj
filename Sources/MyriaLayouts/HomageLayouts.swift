@@ -123,7 +123,7 @@ public struct PlatonicLayout: Layout {
                 .slider("beta", "Tilt β", 0...180, step: 1, unit: "°", default: 0),
                 .slider("gamma", "Turn γ", 0...360, step: 1, unit: "°", default: 0),
             ],
-            preferredMesh: .platonic(.icosahedron, levels: 0), requires: [.land], fixesMesh: true)
+            preferredMesh: .platonic(.icosahedron, levels: 0), fixesMesh: true, requiresFields: ["landDensity"])
     }
 
     func solid(_ p: LayoutParameters) -> PlatonicSolid {
@@ -176,9 +176,15 @@ public enum PlatonicOptimizer {
         }
     }
 
+    /// Land, or for bodies without seas the ground above the median height.
     static func landRaster(_ data: BodyData) throws -> GridField {
         try data.cached("field:landRaster:1440") {
-            GridField.coverage(rings: try data.land().rings, width: 1440, height: 720, supersample: 2)
+            if data.body.has(.land) {
+                return GridField.coverage(rings: try data.land().rings, width: 1440, height: 720, supersample: 2)
+            }
+            let elevation = GridField(grid: try data.grid(.elevation), layer: 0)
+            let median = elevation.quantile(0.5)
+            return GridField.sampling(width: 1440, height: 720) { elevation.value(latitude: $0.latitude, longitude: $0.longitude) > median ? 1 : 0 }
         }
     }
 
@@ -326,7 +332,18 @@ public struct GeoAlignedLayout: Layout {
         }
         return LayoutDescriptor(id: "geo-\(style.rawValue)", title: title, summary: summary, story: story, symbol: symbol,
                                 category: .homage, parameters: parameters, preferredMesh: .geodesic(frequency: 32),
-                                requires: [.land])
+                                requiresFields: ["landDensity"])
+    }
+
+    /// On worlds without seas, high ground plays the part of land.
+    public func descriptor(for body: Body) -> LayoutDescriptor {
+        guard !body.hasSeas else { return descriptor }
+        return switch style {
+        case .continents: descriptor.renamed(title: "Aligned with the Highlands", summary: "w = f: the highlands whole, cuts through the lowlands")
+        case .northUp: descriptor.renamed(title: "North Up, South Down", summary: "f plus a graticular weight for a familiar layout")
+        case .separated: descriptor.renamed(title: "Highlands and Lowlands", summary: "w = |f − f_c|: the outline follows the edge of the highlands")
+        case .coastline: descriptor.renamed(title: "The Rim of the Lowlands", summary: "w = −f: the lowlands in the middle, the highlands around them")
+        }
     }
 
     public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {

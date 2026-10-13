@@ -225,8 +225,8 @@ struct Legend: View {
 
     private var content: AnyView? {
         let style = model.style
-        if case .field(let key) = model.coloring, let d = CelestialBody.earth.field(key.id),
-           let field = try? BodyData.earth.field(key) {
+        if case .field(let key) = model.coloring, let d = model.body.field(key.id),
+           let field = try? BodyData.of(model.body).field(key) {
             let range = Self.range(key, field, d)
             let colors = style.colormap(d.colormap).table(24).map { Color(rgba: $0) }
             return AnyView(VStack(alignment: .leading, spacing: 4) {

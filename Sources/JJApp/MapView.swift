@@ -226,11 +226,11 @@ final class MapMTKView: MTKView, MTKViewDelegate {
     private func recenter(on location: GeoPoint) {
         let d = model.descriptor
         if d.parameter("lat") != nil, d.parameter("lon") != nil {
-            model.parameterValues[model.layoutID, default: [:]]["lat"] = location.latitude.rounded()
-            model.parameterValues[model.layoutID, default: [:]]["lon"] = location.longitude.rounded()
+            model.setParameter("lat", location.latitude.rounded())
+            model.setParameter("lon", location.longitude.rounded())
             model.rebuild(transition: true)
         } else if let key = ["center", "lambda0"].first(where: { d.parameter($0) != nil }) {
-            model.parameterValues[model.layoutID, default: [:]][key] = (location.longitude / 5).rounded() * 5
+            model.setParameter(key, (location.longitude / 5).rounded() * 5)
             model.rebuild(transition: true)
         }
     }

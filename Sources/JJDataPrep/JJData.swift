@@ -2,15 +2,16 @@ import ArgumentParser
 import Foundation
 
 /// `jj-data`: downloads open datasets into `data/raw/` (cached) and writes
-/// JJ's compact Earth resources into `Sources/MyriaData/Resources/Earth/`.
+/// JJ's compact resources into `Sources/MyriaData/Resources/<Body>/` (Earth,
+/// Moon, Mars).
 @main
 struct JJData: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj-data",
-        abstract: "Download open datasets and write JJ's compact Earth resources.",
+        abstract: "Download open datasets and write JJ's compact Earth, Moon and Mars resources.",
         subcommands: [
             Rivers.self, Lakes.self, Countries.self, Plates.self, Places.self, Flights.self,
-            Precipitation.self, Wind.self, Elevation.self, All.self, Verify.self,
+            Precipitation.self, Wind.self, Elevation.self, MoonData.self, MarsData.self, All.self, Verify.self,
         ]
     )
 }
@@ -95,6 +96,30 @@ struct Elevation: ParsableCommand {
     }
 }
 
+struct MoonData: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "moon",
+        abstract: "LRO LOLA LDEM_4 topography and IAU named features → Moon/elevation.grid, Moon/features.json")
+    @OptionGroup var options: CommonOptions
+    func run() throws {
+        let ws = try options.workspace()
+        try step("moon elevation") { try PlanetaryData.elevation(ws, PlanetaryData.moon) }
+        try step("moon features") { try PlanetaryData.features(ws, PlanetaryData.moon) }
+    }
+}
+
+struct MarsData: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "mars",
+        abstract: "MGS MOLA MEGDR 4 px/deg topography and IAU named features → Mars/elevation.grid, Mars/features.json")
+    @OptionGroup var options: CommonOptions
+    func run() throws {
+        let ws = try options.workspace()
+        try step("mars elevation") { try PlanetaryData.elevation(ws, PlanetaryData.mars) }
+        try step("mars features") { try PlanetaryData.features(ws, PlanetaryData.mars) }
+    }
+}
+
 struct All: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Build every resource, then verify them.")
     @OptionGroup var options: CommonOptions
@@ -110,6 +135,10 @@ struct All: ParsableCommand {
         try step("precipitation") { try ClimateGrids.precipitation(ws) }
         try step("wind") { try ClimateGrids.wind(ws) }
         try step("elevation") { try ElevationGrid.run(ws, stride: 5) }
+        try step("moon elevation") { try PlanetaryData.elevation(ws, PlanetaryData.moon) }
+        try step("moon features") { try PlanetaryData.features(ws, PlanetaryData.moon) }
+        try step("mars elevation") { try PlanetaryData.elevation(ws, PlanetaryData.mars) }
+        try step("mars features") { try PlanetaryData.features(ws, PlanetaryData.mars) }
         try step("verify") { try Verification.run(ws) }
     }
 }

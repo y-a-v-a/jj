@@ -37,7 +37,7 @@ enum Shared {
 
 @Suite("Every layout cuts a spanning tree")
 struct SpanningTreeTests {
-    static let ids = LayoutCatalog.all.map(\.descriptor.id)
+    static let ids = LayoutCatalog.available(for: .earth).map(\.descriptor.id)
 
     @Test(arguments: ids)
     func cutsFormASpanningTree(id: String) throws {
@@ -57,7 +57,8 @@ struct SpanningTreeTests {
     @Test func catalogueIsConsistent() {
         let ids = LayoutCatalog.all.map(\.descriptor.id)
         #expect(Set(ids).count == ids.count, "unique ids")
-        #expect(LayoutCatalog.available(for: .earth).count == ids.count)
+        // Every layout but the craters (which need named craters) works on Earth.
+        #expect(LayoutCatalog.available(for: .earth).count == ids.count - 1)
         for layout in LayoutCatalog.all {
             let d = layout.descriptor
             #expect(!d.title.isEmpty && !d.summary.isEmpty && d.story.count > 80)
@@ -181,6 +182,20 @@ struct ThemeTests {
             return land[e.leftFace] != land[e.rightFace]
         }
         #expect(Double(coast.filter { !cut.hinges[$0] }.count) / Double(coast.count) > 0.9)
+    }
+
+    /// At sea level the waterline follows today's coast.
+    @Test func waterlineAtSeaLevelFollowsTheCoast() throws {
+        let (context, cut) = try Shared.cut("waterline", mesh: .geodesic(frequency: 16))
+        let land = try context.landFraction()
+        let elevation = try context.edgeValues(FieldKey("elevation"))
+        // Edges between clear land and clear sea faces are nearly all cut.
+        let shore = context.mesh.topology.edges.indices.filter {
+            let e = context.mesh.topology.edges[$0]
+            return (land[e.leftFace] > 0.9 && land[e.rightFace] < 0.1) || (land[e.leftFace] < 0.1 && land[e.rightFace] > 0.9)
+        }
+        #expect(Double(shore.filter { !cut.hinges[$0] }.count) / Double(shore.count) > 0.6)
+        #expect(Shared.mean(elevation.map(abs)) { !cut.hinges[$0] } < Shared.mean(elevation.map(abs)) { cut.hinges[$0] })
     }
 
     @Test func oceanBasins() {

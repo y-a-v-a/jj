@@ -141,15 +141,24 @@ public struct Body: Sendable, Identifiable, Hashable {
     public let resourceFolder: String
     public let datasets: [DatasetDescriptor]
     public let fields: [FieldDescriptor]
+    /// Colours for the relief when the body has its own (no seas to tint).
+    public let relief: ReliefTint?
+    /// Whether the body has land and sea, so maps can tell them apart.
+    public let hasSeas: Bool
+    /// Whether day and night are worth showing.
+    public let hasSunlight: Bool
 
     public init(id: String, name: String, radius: Double, resourceFolder: String, datasets: [DatasetDescriptor],
-                fields: [FieldDescriptor]) {
+                fields: [FieldDescriptor], relief: ReliefTint? = nil, hasSeas: Bool = true, hasSunlight: Bool = true) {
         self.id = id
         self.name = name
         self.radius = radius
         self.resourceFolder = resourceFolder
         self.datasets = datasets
         self.fields = fields
+        self.relief = relief
+        self.hasSeas = hasSeas
+        self.hasSunlight = hasSunlight
     }
 
     public static func == (a: Body, b: Body) -> Bool { a.id == b.id }
@@ -190,6 +199,17 @@ public final class BodyData: Sendable {
 
     /// Earth's data, shared by the whole process.
     public static let earth = BodyData(body: .earth)
+    public static let moon = BodyData(body: .moon)
+    public static let mars = BodyData(body: .mars)
+
+    /// The shared data of a body.
+    public static func of(_ body: Body) -> BodyData {
+        switch body.id {
+        case "moon": .moon
+        case "mars": .mars
+        default: .earth
+        }
+    }
 
     /// The value for `key`, loading it once.
     public func cached<T: Sendable>(_ key: String, _ load: () throws -> T) throws -> T {

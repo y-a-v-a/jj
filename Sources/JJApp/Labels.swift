@@ -62,7 +62,16 @@ enum LabelPlacer {
             }
         }
 
-        if layers.contains(.cities), let places = try? data.places() {
+        if data.body.has(.features), let features = try? data.features() {
+            // The largest named features: maria, basins, great craters.
+            let typicalKm = typical * data.body.radius
+            for feature in features.features.prefix(70) {
+                labels.append(MapLabel(id: labels.count, kind: .region, position: state.projection.project(feature.location),
+                                       text: feature.name, room: max(feature.diameter / typicalKm, 1) * typical * 0.5, timeZone: nil))
+            }
+        }
+
+        if layers.contains(.cities), data.body.has(.places), let places = try? data.places() {
             for place in places.places.prefix(80) {
                 labels.append(MapLabel(id: labels.count, kind: .city, position: state.projection.project(place.location),
                                        text: place.name, room: typical * max(0.6, 2.4 - 0.25 * Double(place.rank)), timeZone: nil))
@@ -126,7 +135,7 @@ enum LabelPlacer {
 
 /// Small renders of every layout for the gallery.
 enum Thumbnails {
-    static let engine = MapEngine(capacity: 4)
+    nonisolated(unsafe) static var engines: [String: MapEngine] = [:]
     nonisolated(unsafe) static var renderer: MapRenderer? = try? MapRenderer(sampleCount: 4)
     static let lock = NSLock()
 
@@ -138,12 +147,14 @@ enum Thumbnails {
         }
     }
 
-    static func render(_ layout: any MapLayout, engine _: MapEngine, palette: Palette, dark: Bool) -> CGImage? {
+    static func render(_ layout: any MapLayout, body: CelestialBody, palette: Palette, dark: Bool) -> CGImage? {
         lock.lock()
         defer { lock.unlock() }
         guard let renderer else { return nil }
+        let engine = engines[body.id] ?? MapEngine(data: BodyData.of(body), capacity: 4)
+        engines[body.id] = engine
         let d = layout.descriptor
-        guard let state = try? engine.build(layout, parameters: d.defaultParameters, mesh: MeshSpec(coarse(d.preferredMesh)))
+        guard let state = try? engine.build(layout, parameters: layout.defaultParameters(for: body), mesh: MeshSpec(coarse(d.preferredMesh)))
         else { return nil }
         let (w, h) = (360, 220)
         var settings = MapExport.settings(for: state, palette: palette, dark: dark, width: w, height: h)

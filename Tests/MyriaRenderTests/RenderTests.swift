@@ -175,7 +175,7 @@ struct RenderTests {
     }
 
     /// Every layout against its reference image.
-    @Test(arguments: LayoutCatalog.all.map(\.descriptor.id))
+    @Test(arguments: LayoutCatalog.available(for: .earth).map(\.descriptor.id))
     func snapshot(id: String) throws {
         let state = try Visual.build(id)
         let pixels = try Visual.render(state, width: 480)

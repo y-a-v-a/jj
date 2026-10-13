@@ -52,7 +52,7 @@ struct JJApp: App {
                 ForEach(LayoutCategory.allCases, id: \.self) { category in
                     Menu(category.title) {
                         ForEach(model.catalog.filter { $0.descriptor.category == category }, id: \.descriptor.id) { layout in
-                            Button(layout.descriptor.title) { model.layoutID = layout.descriptor.id }
+                            Button(layout.descriptor(for: model.body).title) { model.layoutID = layout.descriptor.id }
                         }
                     }
                 }

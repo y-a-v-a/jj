@@ -1,5 +1,8 @@
 import ArgumentParser
 import CoreGraphics
+import CoreText
+import ImageIO
+import UniformTypeIdentifiers
 import Foundation
 import MyriaCore
 import MyriaData
@@ -28,6 +31,16 @@ struct MapOptions: ParsableArguments {
     @Option(help: "Date and time (ISO 8601) for night, clocks and time-dependent layouts.")
     var date: String?
 
+    @Option(help: "The world: earth, moon or mars.")
+    var body = "earth"
+
+    func world() throws -> Body {
+        guard let b = Body.all.first(where: { $0.id == body }) else { throw ValidationError("unknown body \(body)") }
+        return b
+    }
+
+    func engine() throws -> MapEngine { MapEngine(data: BodyData.of(try world())) }
+
     func resolvedDate() throws -> Date {
         guard let date else { return Date() }
         guard let d = ISO8601DateFormatter().date(from: date) else { throw ValidationError("bad date \(date)") }
@@ -38,7 +51,10 @@ struct MapOptions: ParsableArguments {
         guard let layout = LayoutCatalog.layout(id: layout) else {
             throw ValidationError("unknown layout \(self.layout); try `jj layouts`")
         }
-        var parameters = layout.descriptor.defaultParameters
+        guard layout.descriptor.isAvailable(for: try world()) else {
+            throw ValidationError("\(self.layout) needs data \(body) does not have")
+        }
+        var parameters = layout.defaultParameters(for: try world())
         parameters.date = try resolvedDate()
         for p in parameter {
             let parts = p.split(separator: "=", maxSplits: 1).map(String.init)
@@ -97,7 +113,7 @@ struct Render: ParsableCommand {
     var layers: String?
 
     func run() throws {
-        let engine = MapEngine()
+        let engine = try map.engine()
         let start = Date()
         let state = try map.build(engine)
         let built = Date()
@@ -147,7 +163,7 @@ struct Stats: ParsableCommand {
     @OptionGroup var map: MapOptions
 
     func run() throws {
-        let engine = MapEngine()
+        let engine = try map.engine()
         let start = Date()
         let state = try map.build(engine)
         let mesh = state.mesh
@@ -202,23 +218,86 @@ struct Gallery: ParsableCommand {
     @Option(help: "Only layouts whose id contains this.")
     var filter: String?
 
+    @Option(help: "The world: earth, moon or mars.")
+    var body = "earth"
+
+    @Option(help: "Also compose all renders into one titled contact sheet (PNG or JPEG by extension).")
+    var sheet: String?
+
+    @Option(help: "Columns of the contact sheet.")
+    var columns = 4
+
     func run() throws {
-        let engine = MapEngine()
+        guard let world = Body.all.first(where: { $0.id == body }) else { throw ValidationError("unknown body") }
+        var tiles: [(String, CGImage)] = []
+        let engine = MapEngine(data: BodyData.of(world))
         let renderer = try MapRenderer()
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
         try FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
-        for layout in LayoutCatalog.all where filter.map({ layout.descriptor.id.contains($0) }) ?? true {
+        for layout in LayoutCatalog.available(for: world) where filter.map({ layout.descriptor.id.contains($0) }) ?? true {
             let start = Date()
             let d = layout.descriptor
-            let state = try engine.build(layout, parameters: d.defaultParameters, mesh: MeshSpec(d.preferredMesh))
+            let state = try engine.build(layout, parameters: layout.defaultParameters(for: world), mesh: MeshSpec(d.preferredMesh))
             let h = MapExport.height(for: state, width: width)
             let settings = MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h)
             let image = try renderer.image(state, settings: settings, width: width, height: h)
-            let file = "\(output)/\(d.id)\(dark ? "-dark" : "").png"
+            tiles.append((layout.descriptor(for: world).title, image))
+            let file = "\(output)/\(body == "earth" ? "" : body + "-")\(d.id)\(dark ? "-dark" : "").png"
             try MapExport.png(image).write(to: URL(fileURLWithPath: file))
             print(String(format: "%-22@ %6d faces %5d pieces %6.2fs → %@", d.id, state.mesh.faceCount, state.pieceCount,
                          Date().timeIntervalSince(start), file))
         }
+        if let sheet {
+            let image = try ContactSheet.compose(tiles, columns: columns, style: palette.style(dark: dark))
+            try ContactSheet.write(image, to: sheet)
+            print("sheet → \(sheet)")
+        }
+    }
+}
+
+/// Renders laid out in a grid with their titles.
+enum ContactSheet {
+    static func compose(_ tiles: [(String, CGImage)], columns: Int, style: PaletteStyle) throws -> CGImage {
+        let cellWidth = 640, mapHeight = 400, titleHeight = 44, pad = 16
+        let rows = (tiles.count + columns - 1) / columns
+        let width = columns * cellWidth + (columns + 1) * pad
+        let height = rows * (mapHeight + titleHeight) + (rows + 1) * pad
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { throw RenderError.allocation("sheet") }
+        let bg = style.background
+        ctx.setFillColor(CGColor(srgbRed: bg.r, green: bg.g, blue: bg.b, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, 22, nil)!
+        for (i, (title, image)) in tiles.enumerated() {
+            let col = i % columns, row = i / columns
+            let x = pad + col * (cellWidth + pad)
+            let top = height - pad - row * (mapHeight + titleHeight + pad)
+            // Fit the map into its cell.
+            let scale = min(Double(cellWidth) / Double(image.width), Double(mapHeight) / Double(image.height))
+            let w = Double(image.width) * scale, h = Double(image.height) * scale
+            ctx.draw(image, in: CGRect(x: Double(x) + (Double(cellWidth) - w) / 2, y: Double(top - mapHeight) + (Double(mapHeight) - h) / 2,
+                                       width: w, height: h))
+            let ink = style.ink
+            let attributes: [CFString: Any] = [kCTFontAttributeName: font,
+                                               kCTForegroundColorAttributeName: CGColor(srgbRed: ink.r, green: ink.g, blue: ink.b, alpha: 1)]
+            let line = CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, title as CFString, attributes as CFDictionary))
+            ctx.textPosition = CGPoint(x: x + 4, y: top - mapHeight - titleHeight + 12)
+            CTLineDraw(line, ctx)
+        }
+        return ctx.makeImage()!
+    }
+
+    static func write(_ image: CGImage, to path: String) throws {
+        let url = URL(fileURLWithPath: path)
+        let jpeg = ["jpg", "jpeg"].contains(url.pathExtension.lowercased())
+        let data = NSMutableData()
+        let type = (jpeg ? UTType.jpeg : UTType.png).identifier as CFString
+        guard let dest = CGImageDestinationCreateWithData(data, type, 1, nil) else { throw RenderError.allocation("encoder") }
+        CGImageDestinationAddImage(dest, image, jpeg ? [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary : nil)
+        guard CGImageDestinationFinalize(dest) else { throw RenderError.allocation("encoder") }
+        try (data as Data).write(to: url)
     }
 }
 
@@ -243,7 +322,7 @@ struct Animate: ParsableCommand {
     var dark = false
 
     func run() throws {
-        let engine = MapEngine()
+        let engine = try map.engine()
         let state = try map.build(engine)
         let renderer = try MapRenderer()
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }

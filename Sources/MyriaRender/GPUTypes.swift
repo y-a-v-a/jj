@@ -93,6 +93,8 @@ struct SurfaceUniforms {
     var elevationSize: SIMD4<Float>
     /// Graticule step (degrees, 0 = none), line width (px), fade.
     var graticule: SIMD4<Float>
+    /// Relief over a body's whole range: lowest, highest, 1 when used.
+    var reliefRange: SIMD4<Float>
     /// 0 ocean colour, 1 field, 2 sea relief, 3 per-face paint.
     var baseMode: UInt32
     /// 0 linear, 1 diverging around zero.

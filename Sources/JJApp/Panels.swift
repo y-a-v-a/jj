@@ -14,12 +14,21 @@ struct GalleryView: View {
 
     var body: some View {
         List(selection: Binding(get: { model.layoutID }, set: { if let id = $0 { model.layoutID = id } })) {
+            Picker("World", selection: $model.bodyID) {
+                ForEach(CelestialBody.all) { world in
+                    Text(world.name).tag(world.id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.vertical, 4)
+            .help("The world to unfold")
             ForEach(LayoutCategory.allCases, id: \.self) { category in
                 let layouts = model.catalog.filter { $0.descriptor.category == category }
                 if !layouts.isEmpty {
                     Section(category.title) {
                         ForEach(layouts, id: \.descriptor.id) { layout in
-                            GalleryRow(descriptor: layout.descriptor, thumbnail: model.thumbnails[layout.descriptor.id],
+                            GalleryRow(descriptor: layout.descriptor(for: model.body), thumbnail: model.thumbnails[layout.descriptor.id],
                                        background: model.style.background)
                                 .tag(layout.descriptor.id)
                         }
@@ -75,10 +84,10 @@ struct InspectorView: View {
                 Section("Layout") {
                     ForEach(d.parameters) { p in ParameterControl(parameter: p, value: model.parameterBinding(p.id)) }
                     Button("Reset to Defaults") {
-                        model.parameterValues[model.layoutID] = nil
+                        model.parameterValues[model.choiceKey] = nil
                         model.rebuild()
                     }
-                    .disabled(model.parameterValues[model.layoutID]?.isEmpty ?? true)
+                    .disabled(model.parameterValues[model.choiceKey]?.isEmpty ?? true)
                 }
             }
             Section("Myriahedron") {
@@ -95,7 +104,7 @@ struct InspectorView: View {
                 .pickerStyle(.segmented)
             }
             Section("Layers") {
-                ForEach(LayerID.allCases.filter { $0.dataset.map(CelestialBody.earth.has) ?? true }) { layer in
+                ForEach(LayerID.allCases.filter(model.isAvailable)) { layer in
                     Toggle(layer.title, isOn: model.layerBinding(layer))
                 }
                 if model.layerOverrides.isEmpty == false {
@@ -201,7 +210,7 @@ struct MeshPicker: View {
             case .platonic:
                 EmptyView()
             }
-            if model.meshChoices[model.layoutID] != nil {
+            if model.meshChoices[model.choiceKey] != nil {
                 Button("Use \(d.preferredMesh.title)") { model.setMesh(nil) }
             }
             Text("Faces are flat. Each shows its part of the globe by gnomonic projection, so finer meshes approach a perfectly conformal, equal-area map with ever more interrupts.")
@@ -235,11 +244,13 @@ struct ColoringPicker: View {
                     Choice(id: "landsea", title: "Land and sea", coloring: .landSea),
                     Choice(id: "relief", title: "Relief", coloring: .relief),
                     Choice(id: "pieces", title: "Pieces of the cut", coloring: .groups)]
+        let world = model.body
+        if !world.hasSeas { list.removeAll { $0.id == "landsea" } }
         for (dataset, title) in [(DatasetID.countries, "Countries"), (.plates, "Tectonic plates"), (.timeZones, "Timezones")]
-        where CelestialBody.earth.has(dataset) {
+        where world.has(dataset) {
             list.append(Choice(id: "regions:\(dataset)", title: title, coloring: .regions(dataset)))
         }
-        for field in CelestialBody.earth.availableFields {
+        for field in world.availableFields {
             list.append(Choice(id: "field:\(field.id)", title: field.title, coloring: .field(field.defaultKey)))
         }
         return list

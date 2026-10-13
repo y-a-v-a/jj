@@ -41,7 +41,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/JJApp" "$APP/Contents/MacOS/JJ"
 # Data files are looked up in the app's resources first.
-cp -R Sources/MyriaData/Resources/Earth "$APP/Contents/Resources/Earth"
+for world in Earth Moon Mars; do
+  cp -R "Sources/MyriaData/Resources/$world" "$APP/Contents/Resources/$world"
+done
 
 echo "▸ Drawing the icon"
 WORK="$(mktemp -d)"

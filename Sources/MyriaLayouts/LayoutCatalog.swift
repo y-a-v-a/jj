@@ -19,6 +19,9 @@ public enum LayoutCatalog {
         DayNightLayout(),
         WindLayout(),
         RainfallLayout(),
+        // Other worlds, and this one
+        WaterlineLayout(),
+        CraterLayout(),
         // Van Wijk, 2008
         GraticularLayout(.cylindrical),
         GraticularLayout(.conical),
@@ -40,6 +43,6 @@ public enum LayoutCatalog {
 
     /// Layouts whose data a body has.
     public static func available(for body: Body) -> [any Layout] {
-        all.filter { $0.descriptor.requires.allSatisfy(body.has) }
+        all.filter { $0.descriptor.isAvailable(for: body) }
     }
 }

@@ -4,10 +4,11 @@ import MyriaData
 
 /// Where a layout appears in the gallery.
 public enum LayoutCategory: String, Sendable, CaseIterable, Hashable {
-    case planet, people, climate, homage
+    case planet, people, climate, worlds, homage
 
     public var title: String {
         switch self {
+        case .worlds: "Shores and Craters"
         case .planet: "The Planet"
         case .people: "People"
         case .climate: "Sky and Climate"
@@ -135,10 +136,17 @@ public struct LayoutDescriptor: Sendable, Identifiable, Hashable {
     /// The layout picks its own myriahedron (Platonic solids); the mesh
     /// choice is not offered.
     public let fixesMesh: Bool
+    /// Fields (by id) the layout needs, besides datasets.
+    public let requiresFields: [String]
+    /// Bodies the layout is meant for; nil means any body with the data.
+    public let bodies: [String]?
 
     public init(id: String, title: String, summary: String, story: String, symbol: String, category: LayoutCategory,
                 parameters: [LayoutParameter] = [], preferredMesh: MeshKind, requires: [DatasetID] = [],
-                isTimeDependent: Bool = false, fixesMesh: Bool = false) {
+                isTimeDependent: Bool = false, fixesMesh: Bool = false, requiresFields: [String] = [],
+                bodies: [String]? = nil) {
+        self.requiresFields = requiresFields
+        self.bodies = bodies
         self.id = id
         self.title = title
         self.summary = summary
@@ -157,6 +165,19 @@ public struct LayoutDescriptor: Sendable, Identifiable, Hashable {
     }
 
     public func parameter(_ id: String) -> LayoutParameter? { parameters.first { $0.id == id } }
+
+    /// The same layout under another name (for another world).
+    public func renamed(title: String, summary: String) -> LayoutDescriptor {
+        LayoutDescriptor(id: id, title: title, summary: summary, story: story, symbol: symbol, category: category,
+                         parameters: parameters, preferredMesh: preferredMesh, requires: requires,
+                         isTimeDependent: isTimeDependent, fixesMesh: fixesMesh, requiresFields: requiresFields, bodies: bodies)
+    }
+
+    /// Whether a body has what this layout needs.
+    public func isAvailable(for body: Body) -> Bool {
+        (bodies?.contains(body.id) ?? true) && requires.allSatisfy(body.has)
+            && requiresFields.allSatisfy { id in body.availableFields.contains { $0.id == id } }
+    }
 }
 
 /// The result of cutting: which edges stay hinges, the root face, and how
@@ -196,6 +217,12 @@ public protocol Layout: Sendable {
 
     /// The look that tells this layout's story.
     func appearance(_ parameters: LayoutParameters) -> LayoutAppearance
+
+    /// Parameter values that suit a body better than the descriptor's.
+    func defaults(for body: Body) -> [String: Double]
+
+    /// The descriptor as shown for a body (names that fit that world).
+    func descriptor(for body: Body) -> LayoutDescriptor
 }
 
 extension Layout {
@@ -204,6 +231,17 @@ extension Layout {
     public func mesh(for parameters: LayoutParameters, chosen: MeshSpec, body: BodyData) throws -> MeshSpec { chosen }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance { LayoutAppearance() }
+
+    public func defaults(for body: Body) -> [String: Double] { [:] }
+
+    public func descriptor(for body: Body) -> LayoutDescriptor { descriptor }
+
+    /// The descriptor's defaults with the body's own on top.
+    public func defaultParameters(for body: Body) -> LayoutParameters {
+        var p = descriptor.defaultParameters
+        for (k, v) in defaults(for: body) { p[k] = v }
+        return p
+    }
 }
 
 public enum LayoutError: Error, CustomStringConvertible {

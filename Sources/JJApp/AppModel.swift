@@ -75,10 +75,42 @@ struct Transition {
 
 @MainActor @Observable
 final class AppModel {
-    let engine = MapEngine(capacity: 8)
-    let catalog: [any MapLayout] = LayoutCatalog.available(for: .earth)
+    private var engines: [String: MapEngine] = [:]
+
+    /// The engine of the current body (each body keeps its own meshes).
+    var engine: MapEngine {
+        if let e = engines[bodyID] { return e }
+        let e = MapEngine(data: BodyData.of(body), capacity: 8)
+        engines[bodyID] = e
+        return e
+    }
+
+    var catalog: [any MapLayout] { LayoutCatalog.available(for: body) }
 
     // MARK: Choices
+
+    var bodyID: String = UserDefaults.standard.string(forKey: "body") ?? "earth" {
+        didSet {
+            guard bodyID != oldValue else { return }
+            UserDefaults.standard.set(bodyID, forKey: "body")
+            arriveAsGlobe = true
+            if !catalog.contains(where: { $0.descriptor.id == layoutID }) {
+                switchingBody = true
+                layoutID = catalog.first?.descriptor.id ?? layoutID
+                switchingBody = false
+            }
+            coloringOverride = nil
+            layerOverrides = [:]
+            selectedGroup = nil
+            rebuild()
+            refreshThumbnails()
+        }
+    }
+
+    var body: CelestialBody { CelestialBody.all.first { $0.id == bodyID } ?? .earth }
+    private var switchingBody = false
+    /// The next map arrives as a globe and unfolds (launch, new body).
+    private var arriveAsGlobe = true
 
     var layoutID: String = UserDefaults.standard.string(forKey: "layout") ?? "coastline" {
         didSet {
@@ -87,14 +119,16 @@ final class AppModel {
             coloringOverride = nil
             layerOverrides = [:]
             selectedGroup = nil
-            rebuild(transition: true)
+            if !switchingBody { rebuild(transition: true) }
         }
     }
 
-    /// Parameter values per layout.
+    /// Parameter values per body and layout ("mars/waterline").
     var parameterValues: [String: [String: Double]] = [:]
-    /// The user's mesh per layout; nil uses the layout's own.
+    /// The user's mesh per body and layout; nil uses the layout's own.
     var meshChoices: [String: MeshKind] = [:]
+    /// Key for per-layout choices.
+    var choiceKey: String { "\(bodyID)/\(layoutID)" }
 
     var paletteID: String = UserDefaults.standard.string(forKey: "palette") ?? Palette.vanWijk.id {
         didSet { UserDefaults.standard.set(paletteID, forKey: "palette") }
@@ -164,37 +198,42 @@ final class AppModel {
 
     init() {
         NSApplication.shared.appearance = appearance.nsAppearance
+        if CelestialBody.all.first(where: { $0.id == bodyID }) == nil { bodyID = "earth" }
         if catalog.first(where: { $0.descriptor.id == layoutID }) == nil { layoutID = catalog[0].descriptor.id }
     }
 
     // MARK: Derived
 
     var layout: any MapLayout { catalog.first { $0.descriptor.id == layoutID } ?? catalog[0] }
-    var descriptor: LayoutDescriptor { layout.descriptor }
+    var descriptor: LayoutDescriptor { layout.descriptor(for: body) }
     var palette: Palette { Palette.named(paletteID) ?? .vanWijk }
     var style: PaletteStyle { palette.style(dark: isDark) }
 
     var parameters: LayoutParameters {
-        var p = descriptor.defaultParameters
-        for (k, v) in parameterValues[layoutID] ?? [:] { p[k] = v }
+        var p = layout.defaultParameters(for: body)
+        for (k, v) in parameterValues[choiceKey] ?? [:] { p[k] = v }
         p.date = date
         return p
     }
 
     func parameterBinding(_ id: String) -> Binding<Double> {
         Binding(
-            get: { self.parameterValues[self.layoutID]?[id] ?? self.descriptor.parameter(id)?.defaultValue ?? 0 },
+            get: { self.parameters[id] ?? 0 },
             set: { value in
-                guard self.parameterValues[self.layoutID]?[id] != value else { return }
-                self.parameterValues[self.layoutID, default: [:]][id] = value
+                guard self.parameterValues[self.choiceKey]?[id] != value else { return }
+                self.parameterValues[self.choiceKey, default: [:]][id] = value
                 self.rebuild()
             })
     }
 
-    var meshKind: MeshKind { meshChoices[layoutID] ?? descriptor.preferredMesh }
+    func setParameter(_ id: String, _ value: Double) {
+        parameterValues[choiceKey, default: [:]][id] = value
+    }
+
+    var meshKind: MeshKind { meshChoices[choiceKey] ?? descriptor.preferredMesh }
 
     func setMesh(_ kind: MeshKind?) {
-        meshChoices[layoutID] = kind
+        meshChoices[choiceKey] = kind
         rebuild()
     }
 
@@ -208,7 +247,13 @@ final class AppModel {
         for (layer, on) in layerOverrides {
             if on { set.insert(layer) } else { set.remove(layer) }
         }
-        return set.filter { $0.dataset.map(CelestialBody.earth.has) ?? true }
+        return set.filter(isAvailable)
+    }
+
+    /// Whether the current body has what a layer shows.
+    func isAvailable(_ layer: LayerID) -> Bool {
+        if layer == .night { return body.id == "earth" }
+        return layer.dataset.map(body.has) ?? true
     }
 
     func layerBinding(_ layer: LayerID) -> Binding<Bool> {
@@ -283,7 +328,7 @@ final class AppModel {
         isBuilding = true
         status = "Cutting \(descriptor.title.lowercased())…"
         lastCutMinute = Int(date.timeIntervalSince1970 / 60)
-        let animate = transition && state != nil
+        let animate = transition && state != nil && state?.data.body == body
         if animate { beginTransition() }
         let layers = defaultLayers(for: layout, parameters: parameters)
         let coloring = coloringOverride
@@ -305,7 +350,8 @@ final class AppModel {
                     pending = new
                     if self.transition?.phase == .waiting { swapInPending() }
                 } else {
-                    install(new, resetCamera: self.state?.context.spec != new.context.spec || self.state?.layout.id != new.layout.id)
+                    install(new, resetCamera: self.state?.context.spec != new.context.spec || self.state?.layout.id != new.layout.id
+                        || self.state?.data.body != new.data.body)
                 }
             case .failure(let error):
                 status = "Could not build the map: \(error)"
@@ -333,7 +379,7 @@ final class AppModel {
         if layers.contains(.countryBorders) { _ = try? o.lines(.countryBorders) }
         if layers.contains(.timeZoneBorders) { _ = try? o.lines(.timeZones) }
         if layers.contains(.plateBoundaries) { _ = try? o.lines(.plateBoundaries) }
-        if layers.contains(.flights) { _ = try? o.flightArcs(limit: 2500) }
+        if layers.contains(.flights) { _ = try? o.flightArcs(limit: 2500); _ = try? o.flightArcs(limit: 1200) }
         if layers.contains(.cities) { _ = try? o.cities() }
         switch coloring {
         case .regions(let dataset): _ = try? o.fills(dataset); _ = try? state.context.faceRegions(dataset)
@@ -351,7 +397,9 @@ final class AppModel {
             globe = Self.facingRoot(new)
         }
         // The first map arrives as a globe and unfolds: unfolding the Earth.
-        if first && launchUnfold == nil {
+        if (first || arriveAsGlobe) && launchUnfold == nil {
+            arriveAsGlobe = false
+            globe = Self.facingRoot(new)
             unfold = 0
             foldAnimation = Transition(phase: .unfolding, start: CACurrentMediaTime() + 0.35, from: 0, duration: 2.6)
         }
@@ -488,14 +536,19 @@ final class AppModel {
         func add(_ label: String, _ value: String?) { if let value, !value.isEmpty { lines.append(HoverLine(label: label, value: value)) } }
         let layers = self.layers
         let id = state.layout.id
-        if let land = try? data.land() {
+        if data.body.has(.land), let land = try? data.land() {
             add("Surface", land.isLand(p) ? "Land" : OceanBasin(p).title)
         }
-        if let c = try? data.regions(.countries).region(at: p) { add("Country", c.name) }
-        if id == "timezones" || layers.contains(.timeZoneBorders), let zone = try? data.timeZones().zone(at: p) {
+        if data.body.has(.countries), let c = try? data.regions(.countries).region(at: p) { add("Country", c.name) }
+        if data.body.has(.features), let near = try? data.features().nearest(to: p.unitVector) {
+            let km = near.distance * data.body.radius
+            add(near.feature.type.isEmpty ? "Feature" : near.feature.type,
+                km < near.feature.diameter / 2 ? near.feature.name : "\(near.feature.name), \(Int(km).formatted()) km away")
+        }
+        if data.body.has(.timeZones), id == "timezones" || layers.contains(.timeZoneBorders), let zone = try? data.timeZones().zone(at: p) {
             add("Time", "\(zone.clockTime(at: date)) · \(zone.placeName) · \(zone.offsetLabel(at: date))")
         }
-        if id == "tectonic" || layers.contains(.plateBoundaries), let plate = try? data.regions(.plates).region(at: p) {
+        if data.body.has(.plates), id == "tectonic" || layers.contains(.plateBoundaries), let plate = try? data.regions(.plates).region(at: p) {
             add("Plate", plate.name)
         }
         if let e = try? data.field(FieldKey("elevation")) {
@@ -525,11 +578,11 @@ final class AppModel {
             let from = (toward + 180).truncatingRemainder(dividingBy: 360)
             add("Wind", String(format: "%.1f m/s from %@", speed, Self.compass((from + 360).truncatingRemainder(dividingBy: 360))))
         }
-        if id == "day-night" || layers.contains(.night) {
+        if data.body.id == "earth", id == "day-night" || layers.contains(.night) {
             add("Sun", String(format: "%.1f° %@", abs(SolarPosition.elevation(at: p, date: date)),
                               SolarPosition.elevation(at: p, date: date) >= 0 ? "above the horizon" : "below the horizon"))
         }
-        if let place = try? data.places().nearest(to: p.unitVector), place.distance * data.body.radius < 300 {
+        if data.body.has(.places), let place = try? data.places().nearest(to: p.unitVector), place.distance * data.body.radius < 300 {
             add("Near", "\(place.place.name), \(place.place.country)")
         }
         return lines
@@ -563,15 +616,19 @@ final class AppModel {
 
     // MARK: Thumbnails
 
+    private var thumbnailTask: Task<Void, Never>?
+
     private func renderThumbnails() {
-        let catalog = self.catalog, engine = self.engine
+        thumbnailTask?.cancel()
+        let catalog = self.catalog, body = self.body
         let palette = self.palette, dark = isDark
-        Task {
+        thumbnailTask = Task {
             for layout in catalog {
                 let id = layout.descriptor.id
                 let image = await Task.detached(priority: .background) { () -> CGImage? in
-                    Thumbnails.render(layout, engine: engine, palette: palette, dark: dark)
+                    Thumbnails.render(layout, body: body, palette: palette, dark: dark)
                 }.value
+                guard !Task.isCancelled, body == self.body else { return }
                 if let image { thumbnails[id] = NSImage(cgImage: image, size: NSSize(width: image.width / 2, height: image.height / 2)) }
             }
         }

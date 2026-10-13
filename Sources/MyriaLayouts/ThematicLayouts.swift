@@ -487,7 +487,7 @@ public struct DayNightLayout: Layout {
             story: "Edges weigh how high or low the Sun stands at them, |sin elevation|. The weakest edges run along the terminator, so the globe splits into a day side and a night side, each unfolding like an azimuthal map around the point where the Sun is overhead, or opposite it. The seam moves with the clock: scrub through the day and watch it sweep around the world.",
             symbol: "sun.horizon", category: .climate,
             parameters: [],
-            preferredMesh: .geodesic(frequency: 32), isTimeDependent: true)
+            preferredMesh: .geodesic(frequency: 32), isTimeDependent: true, bodies: ["earth"])
     }
 
     public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
@@ -500,5 +500,71 @@ public struct DayNightLayout: Layout {
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
         LayoutAppearance(coloring: .landSea, showGraticule: true, showCities: true, showNight: true)
+    }
+}
+
+// MARK: - Other worlds, and this one
+
+/// Floods the world to a level and tears the map along the shore.
+public struct WaterlineLayout: Layout {
+    public init() {}
+
+    public var descriptor: LayoutDescriptor {
+        LayoutDescriptor(
+            id: "waterline", title: "Waterline",
+            summary: "Flood the world to any level; the map tears along the shore",
+            story: "Choose a water level and the edges weigh how far above or below it the ground lies. The weakest edges run along the shoreline of the flooded world, so the map's outline becomes that shore: the coast of today at 0 m, the coast of the Ice Age at −120 m, and on Mars the shoreline of the ocean that may once have filled its northern plains, near −3.8 km.",
+            symbol: "water.waves", category: .worlds,
+            parameters: [
+                .slider("level", "Water level", -8000...8000, step: 50, unit: " m", default: 0),
+                .slider("center", "Centre longitude", -180...180, step: 5, unit: "°", default: 10),
+            ],
+            preferredMesh: .geodesic(frequency: 40), requires: [.elevation])
+    }
+
+    public func defaults(for body: Body) -> [String: Double] {
+        switch body.id {
+        case "mars": ["level": -3800, "center": -60]
+        case "moon": ["level": -1800, "center": 0]
+        default: [:]
+        }
+    }
+
+    public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
+        let elevation = try context.edgeValues(FieldKey("elevation"))
+        let level = p.value("level", default: 0)
+        let center = p.value("center", default: 10)
+        let weights = Weights.add(elevation.map { abs($0 - level) / 1000 }, order(context, center: center, strength: 0.05))
+        return LayoutCut(hinges: context.mesh.hinges(weights: weights), root: Weights.root(context, latitude: 20, longitude: center))
+    }
+
+    public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
+        LayoutAppearance(coloring: .relief, showGraticule: false)
+    }
+}
+
+/// Craters stay whole; the smooth plains tear.
+public struct CraterLayout: Layout {
+    public init() {}
+
+    public var descriptor: LayoutDescriptor {
+        LayoutDescriptor(
+            id: "craters", title: "Craters",
+            summary: "Every named crater stays whole; the plains tear",
+            story: "Each crater the International Astronomical Union has named is spread over its own disc. Edges weigh the crater density, so the spanning tree holds the battered highlands together and the map tears through the smooth, young plains: the lunar maria, the northern lowlands of Mars.",
+            symbol: "circle.dotted.circle", category: .worlds,
+            parameters: [.slider("center", "Centre longitude", -180...180, step: 5, unit: "°", default: 0)],
+            preferredMesh: .geodesic(frequency: 40), requires: [.features])
+    }
+
+    public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
+        let density = try context.edgeValues(FieldKey("craters"))
+        let center = p.value("center", default: 0)
+        let weights = Weights.add(density.map { log1p(max($0, 0)) }, order(context, center: center, strength: 0.05))
+        return LayoutCut(hinges: context.mesh.hinges(weights: weights), root: Weights.root(context, latitude: 0, longitude: center))
+    }
+
+    public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
+        LayoutAppearance(coloring: .relief, showGraticule: false)
     }
 }

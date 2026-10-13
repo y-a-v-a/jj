@@ -32,6 +32,7 @@ struct SurfaceUniforms {
     float4 elevationGrid;
     float4 elevationSize;
     float4 graticule;
+    float4 reliefRange;
     uint baseMode;
     uint fieldScale;
     uint hasElevation;
@@ -165,12 +166,16 @@ fragment float4 surfaceFragment(SurfaceOut in [[stage_in]],
             if (mode == 1) {
                 float t = sqrt(clamp(h / 6000.0, 0.0, 1.0));
                 color = reliefLUT.sample(lut, float2(t, 0.75));
+            } else if (mode == 4 && u.reliefRange.z > 0.0) {
+                // A body of its own colours, lowest to highest ground.
+                float t = clamp((h - u.reliefRange.x) / max(u.reliefRange.y - u.reliefRange.x, 1.0), 0.0, 1.0);
+                color = reliefLUT.sample(lut, float2(pow(t, 0.85), 0.25));
             } else if (mode == 4) {
                 float t = 1.0 - sqrt(clamp(-h / 8000.0, 0.0, 1.0));
                 color = reliefLUT.sample(lut, float2(t, 0.25));
             }
             float shade = hillshade(elevation, linearWrap, lat, lon, u);
-            if (mode == 4) { shade = mix(1.0, shade, 0.35); }
+            if (mode == 4 && u.reliefRange.z == 0.0) { shade = mix(1.0, shade, 0.35); }
             color.rgb *= shade;
         }
     }
@@ -187,7 +192,7 @@ fragment float4 surfaceFragment(SurfaceOut in [[stage_in]],
         }
         float4 c = fieldLUT.sample(lut, float2(t, 0.5));
         if (u.fieldOverlay == 2) {
-            if (!isnan(v)) { color.rgb = mix(color.rgb, c.rgb, smoothstep(0.02, 0.7, t) * 0.92); }
+            if (!isnan(v)) { color.rgb = mix(color.rgb, c.rgb, smoothstep(0.02, 0.85, t) * 0.85); }
         } else {
             color = isnan(v) ? u.oceanColor : c;
         }

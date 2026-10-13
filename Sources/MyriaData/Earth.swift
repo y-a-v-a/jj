@@ -41,7 +41,7 @@ enum EarthFields {
     static let months: [FieldVariant] = [FieldVariant("annual", "Annual mean")]
         + Calendar(identifier: .gregorian).monthSymbols.enumerated().map { FieldVariant(String(format: "%02d", $0 + 1), $1) }
 
-    static let all: [FieldDescriptor] = [landDensity, elevation, precipitation, windSpeed, population, flights, coastDistance]
+    static let all: [FieldDescriptor] = [landDensity, CommonFields.elevation, precipitation, windSpeed, population, flights, coastDistance]
 
     /// Van Wijk's F: the amount of land in the neighbourhood, a 256 × 128
     /// land raster convolved with a spherical Gaussian (figure 9).
@@ -55,13 +55,6 @@ enum EarthFields {
             GridField.coverage(rings: try data.land().rings, width: 256, height: 128, supersample: 8)
         }
         return raster.sphericalGaussian(sigma: sigma, halfRows: max(32, Int((3 * sigma / raster.dlat).rounded(.up))))
-    }
-
-    static let elevation = FieldDescriptor(
-        id: "elevation", title: "Elevation", summary: "Height of the land and depth of the sea floor",
-        units: "m", scale: .diverging, colormap: .terrain, requires: [.elevation]
-    ) { data, _ in
-        GridField(grid: try data.grid(.elevation), layer: 0)
     }
 
     static let precipitation = FieldDescriptor(

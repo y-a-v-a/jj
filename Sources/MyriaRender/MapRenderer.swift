@@ -430,9 +430,12 @@ public final class MapRenderer {
         prepareState(state)
         preparePoses(state, unfold: s.unfold, globe: s.globe)
         guard let frames, let base, let poseBuffer else { return }
+        var s = s
         let style = s.style
         let data = state.data
         let folded = s.unfold < 1
+        // Worlds without seas show their relief instead of land and sea.
+        if !data.body.hasSeas, case .landSea = s.coloring { s.coloring = .relief }
         let px = Float(s.pixelScale * s.lineScale)
 
         var view = ViewUniforms(viewProjection: s.viewport.matrix(), viewportSize: SIMD2(Float(drawableSize.width), Float(drawableSize.height)),
@@ -443,6 +446,7 @@ public final class MapRenderer {
             graticuleColor: style.graticule.simd, sun: .zero, fieldGrid: .zero, fieldSizeRange: SIMD4(1, 1, 0, 1),
             elevationGrid: .zero, elevationSize: SIMD4(1, 1, 0, 1),
             graticule: SIMD4(s.layers.contains(.graticule) ? Float(s.graticuleStep) : 0, 1.0 * px, 0, 0),
+            reliefRange: .zero,
             baseMode: 0, fieldScale: 0, hasElevation: 0, fieldOverlay: 0)
         if s.layers.contains(.night) {
             let sun = SolarPosition.sunDirection(at: s.date)
@@ -474,11 +478,20 @@ public final class MapRenderer {
             elevationTex = t
             surface.hasElevation = 1
             surface.elevationGrid = SIMD4(Float(field.lon0), Float(field.lat0), Float(field.dlon), Float(field.dlat))
-            surface.elevationSize = SIMD4(Float(field.width), Float(field.height), Float(style.hillshade), 18)
+            // Slopes are measured in Earth metres per degree; smaller worlds have steeper degrees.
+            let exaggeration = 18 * Float(6371.0 / data.body.radius)
+            surface.elevationSize = SIMD4(Float(field.width), Float(field.height), Float(style.hillshade), exaggeration)
         }
         if case .relief = s.coloring, surface.hasElevation == 1 { surface.baseMode = 2 }
         if case .groups = s.coloring { surface.baseMode = 3 }
-        let reliefLUT = lut([style.reliefSea.table(), style.reliefLand.table()])
+        var reliefLUT = lut([style.reliefSea.table(), style.reliefLand.table()])
+        if let tint = data.body.relief, let (_, field) = elevationTexture(data) {
+            let table = Colormap(hex: tint.stops).table()
+            reliefLUT = lut([table, table])
+            let range = (try? data.cached("range:relief") { RangeBox(lo: field.quantile(0.003), hi: field.quantile(0.997)) })
+                ?? RangeBox(lo: -1, hi: 1)
+            surface.reliefRange = SIMD4(Float(range.lo), Float(range.hi), 1, 0)
+        }
 
         // An atmosphere around the globe while it is folded.
         if folded {
@@ -607,10 +620,13 @@ public final class MapRenderer {
         }
         if s.layers.contains(.flights) {
             let darkPage = style.background.relativeLuminance < 0.2
-            drawLines(lineArray("flights", state, style: { $0 >= 6 ? 0 : ($0 >= 3 ? 1 : 2) }) { try state.overlays.flightArcs(limit: 2500) },
-                      [lineStyle(style.route.withAlpha(min(style.route.a * 2, 1)), 0.9, glow: darkPage ? 2 : 0),
-                       lineStyle(style.route.withAlpha(style.route.a * 1.2), 0.6, glow: darkPage ? 1 : 0),
-                       lineStyle(style.route.withAlpha(style.route.a * 0.8), 0.45)])
+            // Light pages get fewer, finer arcs; on dark ones they glow.
+            let limit = darkPage ? 2500 : 1200
+            let k = darkPage ? 1.0 : 0.6
+            drawLines(lineArray("flights:\(limit)", state, style: { $0 >= 6 ? 0 : ($0 >= 3 ? 1 : 2) }) { try state.overlays.flightArcs(limit: limit) },
+                      [lineStyle(style.route.withAlpha(min(style.route.a * 2 * k, 1)), 0.9, glow: darkPage ? 2 : 0),
+                       lineStyle(style.route.withAlpha(style.route.a * 1.2 * k), 0.6, glow: darkPage ? 1 : 0),
+                       lineStyle(style.route.withAlpha(style.route.a * 0.8 * k), 0.45)])
         }
         if s.layers.contains(.tissot) {
             drawLines(lineArray("tissot", state) { state.overlays.tissot() }, [lineStyle(style.tissot, 1.1)])

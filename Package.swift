@@ -23,7 +23,7 @@ let package = Package(
         .target(
             name: "MyriaData",
             dependencies: ["MyriaCore"],
-            resources: [.copy("Resources/Earth")]
+            resources: [.copy("Resources/Earth"), .copy("Resources/Moon"), .copy("Resources/Mars")]
         ),
         // Layouts: where to cut the myriahedron.
         .target(name: "MyriaLayouts", dependencies: ["MyriaCore", "MyriaData"]),

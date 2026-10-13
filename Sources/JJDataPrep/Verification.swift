@@ -1,8 +1,8 @@
 import Foundation
 import MyriaData
 
-/// Loads every resource in the Earth folder the way the app would and runs
-/// structural and geographic sanity checks.
+/// Loads every resource in the Earth, Moon and Mars folders the way the app
+/// would and runs structural and geographic sanity checks.
 enum Verification {
     final class Report {
         var failures: [String] = []
@@ -38,6 +38,7 @@ enum Verification {
         }
         print("   Resources/Earth total: \(formatBytes(total))")
         report.check(total < 25 * 1_048_576, "Earth resources total under 25 MB")
+        try checkMoonAndMars(ws, report: report)
         if !report.failures.isEmpty {
             throw PrepError("\(report.failures.count) verification check(s) failed: \(report.failures.joined(separator: "; "))")
         }
