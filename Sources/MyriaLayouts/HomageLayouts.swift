@@ -342,12 +342,17 @@ public struct GeoAlignedLayout: Layout {
     /// On worlds without seas, high ground plays the part of land.
     public func descriptor(for body: Body) -> LayoutDescriptor {
         guard !body.hasSeas else { return descriptor }
+        let note = "On \(body.name), without seas, the high ground plays the part of land and the lowlands that of the oceans: "
+            + "f is the share of highlands nearby. On the Earth, van Wijk's figure: "
         return switch style {
-        case .continents: descriptor.renamed(title: "Aligned with the Highlands", summary: "w = f: the highlands whole, cuts through the lowlands")
-        case .northUp: descriptor.renamed(title: "North Up, South Down", summary: "f plus a graticular weight for a familiar layout")
-        case .separated: descriptor.renamed(title: "Highlands and Lowlands", summary: "w = |f − f_c|: the outline follows the edge of the highlands")
+        case .continents: descriptor.renamed(title: "Aligned with the Highlands", summary: "w = f: the highlands whole, cuts through the lowlands",
+                                             storyPrefix: note)
+        case .northUp: descriptor.renamed(title: "North Up, South Down", summary: "f plus a graticular weight for a familiar layout",
+                                          storyPrefix: note)
+        case .separated: descriptor.renamed(title: "Highlands and Lowlands", summary: "w = |f − f_c|: the outline follows the edge of the highlands",
+                                            storyPrefix: note)
         case .coastline: descriptor.renamed(title: "The Rim of the Lowlands", summary: "w = −f: the lowlands in the middle, the highlands around them",
-                                            parameters: descriptor.parameters.filter { $0.id != "spilhaus" })
+                                            parameters: descriptor.parameters.filter { $0.id != "spilhaus" }, storyPrefix: note)
         }
     }
 
