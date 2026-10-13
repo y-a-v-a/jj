@@ -116,6 +116,29 @@ public final class MapPoses: Sendable {
         return local.map { motion.concatenating($0) }
     }
 
+    /// Writes the poses at `unfold` as rows of 3 × 4 matrices, one call per
+    /// face in no particular order, for the GPU. Allocation-free per face.
+    public func forEachPoseRows(unfold t: Double, globe: Mat3,
+                                _ body: (Int, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) -> Void) {
+        if t >= 1 {
+            for (f, m) in projection.unfolding.transforms.enumerated() {
+                body(f, SIMD4(Float(m.cosine), Float(-m.sine), 0, Float(m.translation.x)),
+                     SIMD4(Float(m.sine), Float(m.cosine), 0, Float(m.translation.y)), SIMD4(0, 0, 1, 0))
+            }
+            return
+        }
+        let start = Pose3(rotation: globe, translation: .zero).concatenating(rootToGlobe)
+        let q = Quaternion.slerp(Quaternion(start.rotation), .identity, t).matrix
+        let qm = simd_double3x3(SIMD3(q.c0.x, q.c0.y, q.c0.z), SIMD3(q.c1.x, q.c1.y, q.c1.z), SIMD3(q.c2.x, q.c2.y, q.c2.z))
+        let qt = SIMD3(start.translation.x, start.translation.y, start.translation.z) * (1 - t)
+        folding.forEachPose(unfold: t) { f, r, tr in
+            let m = qm * r, v = qm * tr + qt
+            body(f, SIMD4(Float(m[0][0]), Float(m[1][0]), Float(m[2][0]), Float(v.x)),
+                 SIMD4(Float(m[0][1]), Float(m[1][1]), Float(m[2][1]), Float(v.y)),
+                 SIMD4(Float(m[0][2]), Float(m[1][2]), Float(m[2][2]), Float(v.z)))
+        }
+    }
+
     /// Globe coordinates of a face-local point (the closed polyhedron).
     public func globePoint(face: Int, local: Vec2) -> Vec3 {
         projection.mesh.frames[face].planePoint(local)

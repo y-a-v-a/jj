@@ -161,6 +161,26 @@ struct Stats: ParsableCommand {
         for (name, t) in state.timings { print(String(format: "  %-12@ %.3fs", name, t)) }
         print(String(format: "Total:        %.3fs", Date().timeIntervalSince(start)))
         for note in state.cut.notes { print(note) }
+        // Animation costs: poses per frame on the CPU, a frame on the GPU.
+        var t = Date()
+        let frames = 20
+        var sink: Float = 0
+        for k in 0..<frames {
+            state.poses.forEachPoseRows(unfold: Double(k) / Double(frames), globe: .identity) { _, r0, _, _ in sink += r0.w }
+        }
+        if sink.isNaN { print("") }
+        print(String(format: "Fold poses:   %.2f ms per frame", Date().timeIntervalSince(t) * 1000 / Double(frames)))
+        let renderer = try MapRenderer()
+        let settings = MapExport.settings(for: state, palette: .vanWijk, dark: false, width: 2400, height: 1500, unfold: 0.5)
+        _ = try renderer.image(state, settings: settings, width: 2400, height: 1500)
+        t = Date()
+        for k in 0..<frames {
+            var s = settings
+            s.unfold = 0.3 + 0.02 * Double(k)
+            _ = try renderer.image(state, settings: s, width: 2400, height: 1500)
+        }
+        print(String(format: "Frame:        %.2f ms (2400 × 1500, 4× MSAA, folding, with read-back)", Date().timeIntervalSince(t) * 1000 / Double(frames)))
+        print("Overlap:      " + String(format: "%.3f%% of the map area", state.projection.overlapFraction() * 100))
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// A 3×3 matrix stored by columns.
 public struct Mat3: Hashable, Sendable {
@@ -102,6 +103,74 @@ public struct Folding: Sendable {
         self.hingePoint = hingePoint
         self.hingeAxis = hingeAxis
         self.closingAngle = closingAngle
+
+        // The same data in breadth-first order, as simd values, so a frame
+        // streams through memory instead of hopping around it.
+        var position = Array(repeating: 0, count: n)
+        for (i, f) in order.enumerated() { position[f] = i }
+        plan = Plan(
+            face: order.map { Int32($0) },
+            parent: order.map { unfolding.parent[$0] < 0 ? -1 : Int32(position[unfolding.parent[$0]]) },
+            axis: order.map { SIMD3(hingeAxis[$0].x, hingeAxis[$0].y, hingeAxis[$0].z) },
+            point: order.map { SIMD3(hingePoint[$0].x, hingePoint[$0].y, hingePoint[$0].z) },
+            angle: order.map { closingAngle[$0] },
+            flatR: order.map { f in
+                let r = flat[f].rotation
+                return simd_double3x3(SIMD3(r.c0.x, r.c0.y, r.c0.z), SIMD3(r.c1.x, r.c1.y, r.c1.z), SIMD3(r.c2.x, r.c2.y, r.c2.z))
+            },
+            flatT: order.map { SIMD3(flat[$0].translation.x, flat[$0].translation.y, flat[$0].translation.z) })
+    }
+
+    struct Plan: Sendable {
+        let face: [Int32]
+        let parent: [Int32]
+        let axis: [SIMD3<Double>]
+        let point: [SIMD3<Double>]
+        let angle: [Double]
+        let flatR: [simd_double3x3]
+        let flatT: [SIMD3<Double>]
+    }
+
+    let plan: Plan
+
+    /// The same poses as `poses(unfold:)`, computed with simd and handed to
+    /// `body` parents first, without allocating per face. Renderers call this
+    /// every frame of a fold.
+    public func forEachPose(unfold: Double, _ body: (Int, simd_double3x3, SIMD3<Double>) -> Void) {
+        let closing = 1 - min(max(unfold, 0), 1)
+        let n = plan.face.count
+        var rotations = [simd_double3x3](repeating: matrix_identity_double3x3, count: n)
+        var translations = [SIMD3<Double>](repeating: .zero, count: n)
+        plan.face.withUnsafeBufferPointer { face in
+        plan.parent.withUnsafeBufferPointer { parent in
+        plan.axis.withUnsafeBufferPointer { axis in
+        plan.point.withUnsafeBufferPointer { point in
+        plan.angle.withUnsafeBufferPointer { angle in
+        plan.flatR.withUnsafeBufferPointer { flatR in
+        plan.flatT.withUnsafeBufferPointer { flatT in
+        rotations.withUnsafeMutableBufferPointer { R in
+        translations.withUnsafeMutableBufferPointer { T in
+            for i in 0..<n {
+                let p = Int(parent[i])
+                guard p >= 0 else {
+                    body(Int(face[i]), R[i], T[i])
+                    continue
+                }
+                let k = axis[i]
+                let a = angle[i] * closing
+                // Rodrigues: R = I + sin θ K + (1 − cos θ) K².
+                let c = cos(a), s = sin(a), t = 1 - c
+                let hinge = simd_double3x3(
+                    SIMD3(t * k.x * k.x + c, t * k.x * k.y + s * k.z, t * k.x * k.z - s * k.y),
+                    SIMD3(t * k.x * k.y - s * k.z, t * k.y * k.y + c, t * k.y * k.z + s * k.x),
+                    SIMD3(t * k.x * k.z + s * k.y, t * k.y * k.z - s * k.x, t * k.z * k.z + c))
+                // pose = parent ∘ (translate(point) ∘ hinge ∘ translate(−point)) ∘ flat
+                let local = hinge * (flatT[i] - point[i]) + point[i]
+                R[i] = R[p] * hinge * flatR[i]
+                T[i] = R[p] * local + T[p]
+                body(Int(face[i]), R[i], T[i])
+            }
+        }}}}}}}}}
     }
 
     /// Face-local → world poses at `unfold` in [0, 1] (0 closed, 1 flat). The

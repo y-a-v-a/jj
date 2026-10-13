@@ -73,3 +73,24 @@ struct FoldingTests {
         #expect((composed.apply(Vec3.zero) - pose.apply(pose.apply(Vec3.zero))).length < 1e-12)
     }
 }
+
+@Suite("Fast folding")
+struct FastFoldingTests {
+    @Test(arguments: [0.0, 0.3, 0.77, 1.0])
+    func simdPosesMatchTheReference(unfold: Double) throws {
+        let mesh = try MyriahedralMesh(Polyhedron.geodesic(frequency: 6))
+        let weights = UnfoldingTests.pseudoRandomWeights(mesh.edgeCount, seed: 3)
+        let folding = Folding(projection: mesh.unfold(weights: weights, root: 5))
+        let reference = folding.poses(unfold: unfold)
+        var seen = 0
+        folding.forEachPose(unfold: unfold) { f, r, t in
+            seen += 1
+            let p = reference[f]
+            for (col, c) in [(0, p.rotation.c0), (1, p.rotation.c1), (2, p.rotation.c2)] {
+                #expect(abs(r[col].x - c.x) < 1e-9 && abs(r[col].y - c.y) < 1e-9 && abs(r[col].z - c.z) < 1e-9)
+            }
+            #expect(abs(t.x - p.translation.x) < 1e-9 && abs(t.y - p.translation.y) < 1e-9 && abs(t.z - p.translation.z) < 1e-9)
+        }
+        #expect(seen == mesh.faceCount)
+    }
+}

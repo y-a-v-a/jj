@@ -332,20 +332,19 @@ public final class MapRenderer {
 
     private func preparePoses(_ state: MapState, unfold: Double, globe: Mat3) {
         if let key = poseKey, key.0 == state.id, key.1 == unfold, key.2 == globe, poseBuffer != nil { return }
-        let poses = state.poses.poses(unfold: unfold, globe: globe)
-        var gpu = poses.map { p -> FacePoseGPU in
-            let r = p.rotation, t = p.translation
-            return FacePoseGPU(r0: SIMD4(Float(r.c0.x), Float(r.c1.x), Float(r.c2.x), Float(t.x)),
-                               r1: SIMD4(Float(r.c0.y), Float(r.c1.y), Float(r.c2.y), Float(t.y)),
-                               r2: SIMD4(Float(r.c0.z), Float(r.c1.z), Float(r.c2.z), Float(t.z)))
-        }
-        // One more pose, the identity, for lines given in map coordinates.
-        gpu.append(FacePoseGPU(r0: SIMD4(1, 0, 0, 0), r1: SIMD4(0, 1, 0, 0), r2: SIMD4(0, 0, 1, 0)))
-        let length = gpu.count * MemoryLayout<FacePoseGPU>.stride
+        let count = state.mesh.faceCount + 1
+        let length = count * MemoryLayout<FacePoseGPU>.stride
         if poseBuffer == nil || poseBuffer!.length != length {
             poseBuffer = device.makeBuffer(length: length, options: .storageModeShared)
         }
-        gpu.withUnsafeBytes { poseBuffer!.contents().copyMemory(from: $0.baseAddress!, byteCount: length) }
+        // A frame may still be reading the buffer; the CPU writes are small
+        // and complete before this frame's commands are committed.
+        let poses = poseBuffer!.contents().bindMemory(to: FacePoseGPU.self, capacity: count)
+        state.poses.forEachPoseRows(unfold: unfold, globe: globe) { f, r0, r1, r2 in
+            poses[f] = FacePoseGPU(r0: r0, r1: r1, r2: r2)
+        }
+        // One more pose, the identity, for lines given in map coordinates.
+        poses[count - 1] = FacePoseGPU(r0: SIMD4(1, 0, 0, 0), r1: SIMD4(0, 1, 0, 0), r2: SIMD4(0, 0, 1, 0))
         poseKey = (state.id, unfold, globe)
     }
 
