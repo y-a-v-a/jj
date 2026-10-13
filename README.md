@@ -160,16 +160,17 @@ round, continuous hemispheres, held together by the hinge at dusk.
 A myriahedral map is a polyhedron cut open, so it can be closed again by
 hand. **Export → Paper Globe (PDF)** (or `jj paper`) cuts the layout once
 more on a myriahedron coarse enough to fold (about 80, 320 or 720 faces;
-the Platonic layouts keep their own solid) and lays it out for printing:
+the Platonic layouts keep their own solid, subdivided solids fold 80, 320
+or 1280) and lays it out for printing:
 
 - the net is split at hinges until every piece fits the sheet and no two
   faces lie on top of each other;
 - every seam gets a numbered glue tab on whichever side it fits (the most
   crowded seams choose first); narrow slits close edge to edge and need no
   number;
-- the pieces are turned to their most compact orientation and packed
-  sheet by sheet, with the map printed at 300 dpi under vector cut lines,
-  dashed folds and the numbers.
+- the pieces are nested onto the sheets by their shapes (in quarter turns
+  of their most compact orientation, on a 1 mm raster), with the map
+  printed at 300 dpi under vector cut lines, dashed folds and the numbers.
 
 Choose the size (6 to 40 cm) and the paper (A4, A3, US Letter, Tabloid);
 the sheet previews every page as you go.
