@@ -650,6 +650,9 @@ final class AppModel {
 
     private func animateClosing(to target: Double) {
         closingAnimation = liveClosing == target ? nil : ClosingAnimation(start: CACurrentMediaTime(), from: liveClosing, to: target)
+        // The map changes shape as a whole: show all of it (the camera's
+        // zoom is relative to the map's bounds, which change as it closes).
+        if closingAnimation != nil { camera = MapCamera() }
     }
 
     /// A new map starts open.
