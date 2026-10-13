@@ -132,7 +132,8 @@ public struct PaperNet: Sendable {
         self.polygons = polygons
         let faceCount = mesh.faceCount
         let s = options.scale
-        let tabRoom = options.tabHeight + options.gap / 2
+        // Room around faces for tabs, the gap and the nesting raster.
+        let tabRoom = options.tabHeight + options.gap / 2 + 1
         let fitBox = Vec2(options.content.x - 2 * tabRoom, options.content.y - 2 * tabRoom)
 
         // Every face must fit on its own.
@@ -263,18 +264,16 @@ public struct PaperNet: Sendable {
             return (b - a).length * s
         }.min() ?? 0
 
-        // Turn each piece to its most compact orientation and pack shelves.
-        var placements: [Placement] = []
-        var sizes: [Vec2] = []
+        // Nest the pieces onto sheets by their shapes, each turned to its
+        // most compact orientation or a quarter turn from it.
+        var outlines: [[[Vec2]]] = []
+        var rotations: [Double] = []
         for (p, faces) in parts.enumerated() {
-            let points = (faces.flatMap { polygons[$0] } + tabsOf[p].flatMap { $0 }).map { $0 * s }
-            let hull = Self.hull(points)
-            let rotation = Self.bestRotation(hull, fitting: options.content) ?? 0
-            let rotated = Rect2(bounding: hull.map { Self.rotate($0, rotation) })
-            placements.append(Placement(sheet: 0, rotation: rotation, scale: s, offset: Vec2(-rotated.minX, -rotated.minY)))
-            sizes.append(Vec2(rotated.width, rotated.height))
+            let shapes = (faces.map { polygons[$0] } + tabsOf[p]).map { $0.map { $0 * s } }
+            outlines.append(shapes)
+            rotations.append(Self.bestRotation(Self.hull(shapes.flatMap { $0 }), fitting: options.content) ?? 0)
         }
-        let sheetCount = Self.pack(sizes: sizes, placements: &placements, options: options)
+        let (placements, sheetCount) = Self.nest(outlines, rotations: rotations, options: options)
         self.sheetCount = sheetCount
         self.pieces = parts.indices.map { Piece(faces: parts[$0], placement: placements[$0]) }
 
@@ -477,38 +476,187 @@ public struct PaperNet: Sendable {
         return (cut, rest, part)
     }
 
-    /// First-fit shelves, tallest pieces first. Returns the number of sheets.
-    static func pack(sizes: [Vec2], placements: inout [Placement], options: Options) -> Int {
-        struct Shelf { var sheet: Int; var top: Double; var height: Double; var used: Double }
-        let width = options.content.x, gap = options.gap
-        var shelves: [Shelf] = []
-        // Per sheet, where the next shelf would start.
-        var next: [Double] = []
-        for i in sizes.indices.sorted(by: { sizes[$0].y > sizes[$1].y }) {
-            let w = sizes[i].x, h = sizes[i].y
-            let shelf: Int
-            if let k = shelves.firstIndex(where: { $0.height >= h && $0.used + w <= width }) {
-                shelf = k
-            } else {
-                var sheet = 0
-                while true {
-                    if sheet == next.count {
-                        next.append(options.sheet.y - options.margin - (sheet == 0 ? options.header : 0))
-                    }
-                    let isEmpty = !shelves.contains { $0.sheet == sheet }
-                    // A fresh sheet takes any piece; the header may push one off the first.
-                    if next[sheet] - h >= options.margin - 1e-9 || (isEmpty && sheet > 0) { break }
-                    sheet += 1
-                }
-                shelves.append(Shelf(sheet: sheet, top: next[sheet], height: h, used: 0))
-                next[sheet] -= h + gap
-                shelf = shelves.count - 1
-            }
-            placements[i].sheet = shelves[shelf].sheet
-            placements[i].offset = placements[i].offset + Vec2(options.margin + shelves[shelf].used, shelves[shelf].top - h)
-            shelves[shelf].used += w + gap
+    /// Nests pieces (convex polygons in millimetres) onto sheets: each
+    /// piece, largest first, rasterised at 1 mm with half the gap around it,
+    /// goes to the highest, then leftmost, free spot of the earliest sheet
+    /// with room, in whichever of four quarter-turn orientations fits best.
+    static func nest(_ pieces: [[[Vec2]]], rotations: [Double], options: Options) -> (placements: [Placement], sheets: Int) {
+        let cell = 1.0
+        let cols = Int((options.content.x / cell).rounded(.down)), rows = Int((options.content.y / cell).rounded(.down))
+        let headerRows = Int((options.header / cell).rounded(.up))
+        let pad = options.gap / 2 + cell * 0.71
+
+        /// A piece in one orientation: runs of covered cells (row, first, last).
+        struct Raster {
+            var rotation: Double, left: Double, top: Double, width: Int, height: Int
+            var runs: [(row: Int32, first: Int32, last: Int32)]
+            var area: Int { runs.reduce(0) { $0 + Int($1.last - $1.first) + 1 } }
         }
-        return max(1, next.count)
+        /// The cells a piece covers, turned by `rotation`, with half the gap
+        /// around it: (left, top) of the grid, its size, and the cells.
+        func coverage(_ shapes: [[Vec2]], _ rotation: Double) -> (left: Double, top: Double, width: Int, height: Int, covered: [Bool]) {
+            let turned = shapes.map { $0.map { rotate($0, rotation) } }
+            var b = Rect2.empty
+            for shape in turned { for p in shape { b.include(p) } }
+            let left = b.minX - pad, top = b.maxY + pad
+            let width = Int(((b.width + 2 * pad) / cell).rounded(.up)), height = Int(((b.height + 2 * pad) / cell).rounded(.up))
+            var covered = [Bool](repeating: false, count: width * height)
+            for shape in turned {
+                let sb = Rect2(bounding: shape)
+                let i0 = max(0, Int(((sb.minX - pad - left) / cell).rounded(.down))), i1 = min(width - 1, Int(((sb.maxX + pad - left) / cell).rounded(.down)))
+                let j0 = max(0, Int(((top - sb.maxY - pad) / cell).rounded(.down))), j1 = min(height - 1, Int(((top - sb.minY + pad) / cell).rounded(.down)))
+                guard i0 <= i1, j0 <= j1 else { continue }
+                for j in j0...j1 {
+                    for i in i0...i1 where !covered[j * width + i] {
+                        let centre = Vec2(left + (Double(i) + 0.5) * cell, top - (Double(j) + 0.5) * cell)
+                        if Planar.distanceOutside(shape, centre) <= pad { covered[j * width + i] = true }
+                    }
+                }
+            }
+            return (left, top, width, height, covered)
+        }
+        /// The raster of a piece turned by `rotation` and then `quarters`
+        /// quarter turns, the turns done on the grid itself.
+        func raster(_ c: (left: Double, top: Double, width: Int, height: Int, covered: [Bool]), _ rotation: Double,
+                    quarters: Int) -> Raster? {
+            var (left, top, width, height, covered) = c
+            for _ in 0..<quarters {
+                // (x, y) → (−y, x): column i becomes row W−1−i, row j column j.
+                var turned = [Bool](repeating: false, count: width * height)
+                for j in 0..<height { for i in 0..<width where covered[j * width + i] { turned[(width - 1 - i) * height + j] = true } }
+                (left, top) = (-top, left + Double(width) * cell)
+                (width, height) = (height, width)
+                covered = turned
+            }
+            guard width <= cols, height <= rows else { return nil }
+            var runs: [(row: Int32, first: Int32, last: Int32)] = []
+            for j in 0..<height {
+                var i = 0
+                while i < width {
+                    if covered[j * width + i] {
+                        let first = i
+                        while i < width, covered[j * width + i] { i += 1 }
+                        runs.append((Int32(j), Int32(first), Int32(i - 1)))
+                    } else {
+                        i += 1
+                    }
+                }
+            }
+            return Raster(rotation: rotation + Double(quarters) * .pi / 2, left: left, top: top, width: width, height: height, runs: runs)
+        }
+
+        /// Occupied cells of a sheet, as per-row prefix counts (row-major,
+        /// `cols + 1` a row) for constant-time range queries.
+        struct Sheet {
+            let stride: Int
+            var prefix: [Int32]
+            /// Cells still free: sheets with less room than a piece are skipped.
+            var free: Int
+            init(rows: Int, cols: Int, blockedRows: Int) {
+                stride = cols + 1
+                prefix = [Int32](repeating: 0, count: rows * stride)
+                for r in 0..<min(blockedRows, rows) { for c in 0...cols { prefix[r * stride + c] = Int32(c) } }
+                free = (rows - min(blockedRows, rows)) * cols
+            }
+            /// Nil if the piece fits with its corner at (x, y); else the next
+            /// x worth trying on this row, past the cells in the way.
+            func conflict(_ r: Raster, x: Int, y: Int) -> Int? {
+                prefix.withUnsafeBufferPointer { prefix in
+                    r.runs.withUnsafeBufferPointer { runs in
+                        for run in runs {
+                            let base = (y + Int(run.row)) * stride + x
+                            let a = base + Int(run.first), b = base + Int(run.last)
+                            let total = prefix[b + 1]
+                            guard total != prefix[a] else { continue }
+                            // The last occupied cell in a…b: where the count stops rising.
+                            var lo = a, hi = b
+                            while lo < hi {
+                                let mid = (lo + hi) / 2
+                                if prefix[mid + 1] == total { hi = mid } else { lo = mid + 1 }
+                            }
+                            return x + (lo - a) + 1
+                        }
+                        return nil
+                    }
+                }
+            }
+            func isFree(_ r: Raster, x: Int, y: Int) -> Bool { conflict(r, x: x, y: y) == nil }
+            mutating func occupy(_ r: Raster, x: Int, y: Int) {
+                var k = 0
+                while k < r.runs.count {
+                    // One row at a time: mark its cells, then recount the row.
+                    let row = y + Int(r.runs[k].row), base = row * stride
+                    var occupied = (0..<(stride - 1)).map { prefix[base + $0 + 1] > prefix[base + $0] }
+                    while k < r.runs.count, y + Int(r.runs[k].row) == row {
+                        for i in (x + Int(r.runs[k].first))...(x + Int(r.runs[k].last)) { occupied[i] = true }
+                        k += 1
+                    }
+                    let before = Int(prefix[base + stride - 1])
+                    for i in 0..<(stride - 1) { prefix[base + i + 1] = prefix[base + i] + (occupied[i] ? 1 : 0) }
+                    free -= Int(prefix[base + stride - 1]) - before
+                }
+            }
+        }
+
+        var sheets: [Sheet] = []
+        var placements = [Placement](repeating: Placement(sheet: 0, rotation: 0, scale: options.scale, offset: .zero), count: pieces.count)
+        let area = pieces.map { $0.reduce(0) { $0 + abs(Planar.signedArea($1)) } }
+        for p in pieces.indices.sorted(by: { area[$0] > area[$1] }) {
+            let base = coverage(pieces[p], rotations[p])
+            var orientations = (0..<4).compactMap { raster(base, rotations[p], quarters: $0) }
+            if orientations.isEmpty,
+               let snug = bestRotation(hull(pieces[p].flatMap { $0 }), fitting: Vec2(Double(cols) * cell - 2 * pad - 1, Double(rows) * cell - 2 * pad - 1)),
+               let r = raster(coverage(pieces[p], snug), snug, quarters: 0) {
+                orientations = [r]
+            }
+            guard !orientations.isEmpty else { continue }
+            var best: (sheet: Int, y: Int, x: Int, raster: Raster)?
+            search: for (k, sheet) in sheets.enumerated() where sheet.free >= orientations[0].area {
+                for r in orientations {
+                    // Highest, then leftmost spot for this orientation.
+                    rows: for y in 0...(rows - r.height) {
+                        if let b = best, b.sheet == k, y > b.y { break rows }
+                        var x = 0
+                        while x <= cols - r.width {
+                            if let next = sheet.conflict(r, x: x, y: y) {
+                                x = next
+                                continue
+                            }
+                            if best == nil || best!.sheet > k || (best!.sheet == k && (y, x) < (best!.y, best!.x)) {
+                                best = (k, y, x, r)
+                            }
+                            break rows
+                        }
+                    }
+                }
+                if best != nil { break search }
+            }
+            if best == nil {
+                // A fresh sheet; the first one keeps room for the title.
+                sheets.append(Sheet(rows: rows, cols: cols, blockedRows: sheets.isEmpty ? headerRows : 0))
+                let k = sheets.count - 1
+                for r in orientations {
+                    for y in 0...(rows - r.height) {
+                        if let b = best, y >= b.y { break }
+                        if let x = (0...(cols - r.width)).first(where: { sheets[k].isFree(r, x: $0, y: y) }) {
+                            best = (k, y, x, r)
+                            break
+                        }
+                    }
+                }
+                if best == nil, k == 0 {
+                    // Too tall for the first sheet below its title: start the next.
+                    sheets.append(Sheet(rows: rows, cols: cols, blockedRows: 0))
+                    if let r = orientations.first { best = (1, 0, 0, r) }
+                }
+            }
+            guard let b = best else { continue }
+            sheets[b.sheet].occupy(b.raster, x: b.x, y: b.y)
+            let offset = Vec2(options.margin + Double(b.x) * cell - b.raster.left,
+                              options.sheet.y - options.margin - Double(b.y) * cell - b.raster.top)
+            placements[p] = Placement(sheet: b.sheet, rotation: b.raster.rotation, scale: options.scale, offset: offset)
+        }
+        return (placements, max(1, sheets.count))
     }
 
     static func sheetPosition(_ seam: Seam, topology: MeshTopology, pieceOf: [Int], placements: [Placement],
