@@ -164,3 +164,26 @@ struct PaperMeshTests {
         #expect(abs(m.apply(Vec3(1, 2, 3)).length - Vec3(1, 2, 3).length) < 1e-12)
     }
 }
+
+@Suite("Hexagonal myriahedra")
+struct HexagonTests {
+    @Test(arguments: [1, 4, 9])
+    func hexagonsCloseTheSphere(frequency n: Int) throws {
+        let kind = MeshKind.hexagonal(frequency: n)
+        let mesh = try MyriahedralMesh(kind.build())
+        // One cell per geodesic vertex: twelve pentagons, the rest hexagons.
+        #expect(mesh.cellCount == kind.cellCount)
+        #expect(mesh.polyhedron.vertexCount - mesh.edgeCount + mesh.faceCount == 2)
+        var sizes = [Int: Int]()
+        for c in mesh.cells { sizes[c, default: 0] += 1 }
+        // Pentagons in 3 triangles, hexagons in 4.
+        #expect(sizes.values.filter { $0 == 3 }.count == 12)
+        #expect(sizes.values.allSatisfy { $0 == 3 || $0 == 4 })
+        for f in 0..<mesh.faceCount { #expect(mesh.frames[f].area > 0) }
+        // Cells stay whole whatever the weights.
+        let hinges = mesh.hinges(weights: UnfoldingTests.pseudoRandomWeights(mesh.edgeCount))
+        for e in hinges.indices where mesh.isInternalEdge[e] { #expect(hinges[e]) }
+        #expect(hinges.filter { !$0 }.count == mesh.polyhedron.vertexCount - 1)
+        #expect(MeshKind(argument: kind.argument) == kind)
+    }
+}

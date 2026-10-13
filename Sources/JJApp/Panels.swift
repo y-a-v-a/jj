@@ -192,6 +192,7 @@ struct MeshPicker: View {
             Picker("Kind", selection: Binding(get: { kindIndex }, set: { setKind($0) })) {
                 Text("Graticule").tag(0)
                 Text("Geodesic").tag(1)
+                Text("Hexagons").tag(2)
             }
             .pickerStyle(.segmented)
             switch model.meshKind {
@@ -207,6 +208,12 @@ struct MeshPicker: View {
                         Text("\(f) · \(MeshKind.geodesic(frequency: f).cellCount.formatted())").tag(f)
                     }
                 }
+            case .hexagonal(let n):
+                Picker("Frequency", selection: Binding(get: { n }, set: { model.setMesh(.hexagonal(frequency: $0)) })) {
+                    ForEach(Self.frequencies, id: \.self) { f in
+                        Text("\(f) · \(MeshKind.hexagonal(frequency: f).cellCount.formatted())").tag(f)
+                    }
+                }
             case .platonic:
                 EmptyView()
             }
@@ -219,13 +226,16 @@ struct MeshPicker: View {
     }
 
     private var kindIndex: Int {
-        if case .geodesic = model.meshKind { return 1 }
-        return 0
+        switch model.meshKind {
+        case .geodesic: 1
+        case .hexagonal: 2
+        default: 0
+        }
     }
 
     private func setKind(_ index: Int) {
         guard index != kindIndex else { return }
-        model.setMesh(index == 0 ? .graticule(step: 1.5) : .geodesic(frequency: 32))
+        model.setMesh([MeshKind.graticule(step: 1.5), .geodesic(frequency: 32), .hexagonal(frequency: 24)][index])
     }
 }
 

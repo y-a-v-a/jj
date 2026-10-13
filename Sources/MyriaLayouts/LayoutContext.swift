@@ -120,15 +120,37 @@ public final class LayoutContext: Sendable {
 
     // MARK: Land and regions
 
-    /// Fraction of each face that is land, from 8 samples per face.
+    /// Whether some cells hold several faces (hexagons, subdivided cubes).
+    var hasCompositeCells: Bool { mesh.cellCount < mesh.faceCount }
+
+    /// Faces of each cell.
+    var cellFaces: [[Int]] {
+        cached("cellFaces") {
+            var faces = Array(repeating: [Int](), count: mesh.cellCount)
+            for (f, c) in mesh.cells.enumerated() { faces[c].append(f) }
+            return faces
+        }
+    }
+
+    /// Fraction of each face that is land, from 8 samples per face; faces of
+    /// one cell share their cell's (area-weighted) value, since cells are
+    /// never cut apart.
     public func landFraction() throws -> [Double] {
         try cached("landFraction") {
             let land = try data.land()
             let samples = faceSamplePoints
-            return parallelMap(mesh.faceCount) { f in
+            var fraction = parallelMap(mesh.faceCount) { f in
                 let points = samples[f]
                 return Double(points.filter { land.isLand(GeoPoint($0)) }.count) / Double(points.count)
             }
+            if hasCompositeCells {
+                for faces in cellFaces where faces.count > 1 {
+                    let area = faces.reduce(0) { $0 + mesh.frames[$1].area }
+                    let mean = faces.reduce(0) { $0 + fraction[$1] * mesh.frames[$1].area } / max(area, 1e-300)
+                    for f in faces { fraction[f] = mean }
+                }
+            }
+            return fraction
         }
     }
 
@@ -138,9 +160,14 @@ public final class LayoutContext: Sendable {
         try cached("faceRegions:\(dataset)") {
             let regions = try dataset == .timeZones ? data.timeZones().regions : data.regions(dataset)
             let samples = faceSamplePoints
+            let composite = hasCompositeCells
+            let cells = mesh.cells, faces = composite ? cellFaces : []
             return parallelMap(mesh.faceCount) { f in
                 var votes: [Int: Int] = [:]
-                for p in samples[f] { votes[regions.polygons.feature(at: GeoPoint(p)) ?? -1, default: 0] += 1 }
+                // A cell votes as a whole.
+                for g in composite ? faces[cells[f]] : [f] {
+                    for p in samples[g] { votes[regions.polygons.feature(at: GeoPoint(p)) ?? -1, default: 0] += 1 }
+                }
                 return votes.max { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }?.key ?? -1
             }
         }

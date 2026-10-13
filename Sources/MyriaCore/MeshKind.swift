@@ -44,6 +44,9 @@ public enum MeshKind: Hashable, Sendable, Codable {
     /// A Platonic solid, recursively subdivided `levels` times (each level
     /// splits every edge at its great-circle midpoint).
     case platonic(PlatonicSolid, levels: Int)
+    /// Hexagons (and twelve pentagons): the dual of the geodesic sphere of
+    /// this frequency, every cell a fan of triangles that is never cut.
+    case hexagonal(frequency: Int)
 
     public func build() -> MeshBuild {
         switch self {
@@ -53,7 +56,43 @@ public enum MeshKind: Hashable, Sendable, Codable {
             MeshBuild(polyhedron: .geodesic(frequency: n))
         case .platonic(let solid, let levels):
             RecursiveSubdivision.build(solid.polyhedron(), levels: levels)
+        case .hexagonal(let n):
+            Self.hexagons(frequency: n)
         }
+    }
+
+    /// The dual of a geodesic sphere: one cell per geodesic vertex, its
+    /// corners at the centroids of the triangles around it. Cells are not
+    /// planar, so each is split by diagonals into triangles of one cell.
+    /// Diagonals, not spokes: a centre vertex would have to be reached by a
+    /// cut, opening every cell at its middle.
+    static func hexagons(frequency n: Int) -> MeshBuild {
+        let geo = Polyhedron.geodesic(frequency: n)
+        var around = Array(repeating: [Int](), count: geo.vertexCount)
+        for (t, face) in geo.faces.enumerated() { for v in face { around[v].append(t) } }
+        let centroids = geo.faces.map { $0.reduce(Vec3.zero) { $0 + geo.vertices[$1] }.normalized }
+        var faces: [[Int]] = []
+        var cells: [Int] = []
+        for v in 0..<geo.vertexCount {
+            let c = geo.vertices[v]
+            let (east, north) = Spherical.tangentFrame(at: c)
+            let ring = around[v].sorted { a, b in
+                atan2(centroids[a].dot(north), centroids[a].dot(east)) < atan2(centroids[b].dot(north), centroids[b].dot(east))
+            }
+            if ring.count == 6 {
+                // A central triangle and three ears: well-shaped pieces.
+                for tri in [[0, 2, 4], [0, 1, 2], [2, 3, 4], [4, 5, 0]] {
+                    faces.append(tri.map { ring[$0] })
+                    cells.append(v)
+                }
+            } else {
+                for k in 1..<(ring.count - 1) {
+                    faces.append([ring[0], ring[k], ring[k + 1]])
+                    cells.append(v)
+                }
+            }
+        }
+        return MeshBuild(polyhedron: Polyhedron(vertices: centroids, faces: faces), cells: cells)
     }
 
     /// Number of visible polygons (cells).
@@ -67,6 +106,8 @@ public enum MeshKind: Hashable, Sendable, Codable {
         case .platonic(let solid, let levels):
             let perFace = solid == .dodecahedron && levels > 0 ? 5 * Int(pow(4.0, Double(levels - 1))) : Int(pow(4.0, Double(levels)))
             return solid.faceCount * perFace
+        case .hexagonal(let n):
+            return 10 * n * n + 2
         }
     }
 
@@ -75,6 +116,7 @@ public enum MeshKind: Hashable, Sendable, Codable {
         case .graticule(let s): "Graticule \(Self.format(s))°"
         case .geodesic(let n): "Geodesic \(n)"
         case .platonic(let solid, let levels): levels == 0 ? solid.title : "\(solid.title) ×\(levels)"
+        case .hexagonal(let n): "Hexagons \(n)"
         }
     }
 
@@ -90,6 +132,9 @@ public enum MeshKind: Hashable, Sendable, Codable {
         case "geodesic":
             guard parts.count == 2, let n = Int(parts[1]), n > 0, n <= 400 else { return nil }
             self = .geodesic(frequency: n)
+        case "hexagonal":
+            guard parts.count == 2, let n = Int(parts[1]), n > 0, n <= 200 else { return nil }
+            self = .hexagonal(frequency: n)
         case "platonic":
             guard parts.count >= 2, let solid = PlatonicSolid(rawValue: parts[1]) else { return nil }
             let levels = parts.count > 2 ? Int(parts[2]) ?? 0 : 0
@@ -105,6 +150,7 @@ public enum MeshKind: Hashable, Sendable, Codable {
         case .graticule(let s): "graticule:\(Self.format(s))"
         case .geodesic(let n): "geodesic:\(n)"
         case .platonic(let solid, let levels): "platonic:\(solid.rawValue):\(levels)"
+        case .hexagonal(let n): "hexagonal:\(n)"
         }
     }
 

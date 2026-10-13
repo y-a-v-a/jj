@@ -144,6 +144,7 @@ enum Thumbnails {
         case .graticule(let step): .graticule(step: max(step, 3))
         case .geodesic(let n): .geodesic(frequency: min(n, 20))
         case .platonic(let solid, let levels): .platonic(solid, levels: min(levels, 3))
+        case .hexagonal(let n): .hexagonal(frequency: min(n, 12))
         }
     }
 
