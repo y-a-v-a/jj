@@ -428,8 +428,11 @@ struct Animate: ParsableCommand {
         for k in 0..<frames {
             // Van Wijk: α' = α (1 + cos(π t / T)) / 2.
             let t = 1 - (1 + cos(.pi * Double(k) / Double(frames - 1))) / 2
-            let settings = MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h,
+            var settings = MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h,
                                               date: try map.resolvedDate(), unfold: t, globe: tilt * globe)
+            // Framed around the map as it stands, so no frame loses part of it.
+            settings.viewport = MapExport.fittedViewport(for: state, width: Double(width), height: Double(h), unfold: t,
+                                                         globe: tilt * globe)
             images.append(try renderer.image(state, settings: settings, width: width, height: h))
         }
         if let last = images.last { images += Array(repeating: last, count: 12) }
