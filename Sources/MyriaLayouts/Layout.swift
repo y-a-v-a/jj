@@ -171,10 +171,11 @@ public struct LayoutDescriptor: Sendable, Identifiable, Hashable {
 
     public func parameter(_ id: String) -> LayoutParameter? { parameters.first { $0.id == id } }
 
-    /// The same layout under another name (for another world).
-    public func renamed(title: String, summary: String) -> LayoutDescriptor {
+    /// The same layout under another name (for another world), optionally
+    /// with fewer parameters.
+    public func renamed(title: String, summary: String, parameters: [LayoutParameter]? = nil) -> LayoutDescriptor {
         LayoutDescriptor(id: id, title: title, summary: summary, story: story, symbol: symbol, category: category,
-                         parameters: parameters, preferredMesh: preferredMesh, requires: requires,
+                         parameters: parameters ?? self.parameters, preferredMesh: preferredMesh, requires: requires,
                          isTimeDependent: isTimeDependent, fixesMesh: fixesMesh, requiresFields: requiresFields, bodies: bodies)
     }
 

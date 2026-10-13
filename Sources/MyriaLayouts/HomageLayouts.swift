@@ -316,7 +316,7 @@ public struct GeoAlignedLayout: Layout {
              "square.split.diagonal.2x2")
         case .coastline:
             ("The Coastline of the Earth", "w = −f: the oceans in the middle, the coasts all around",
-             "With −f as the weight the oceans become central, surrounded by the coastline of the world: a map that emphasises the importance of the oceans, in the spirit of Athelstan Spilhaus's ocean maps.",
+             "With −f as the weight the oceans become central, surrounded by the coastline of the world: a map that emphasises the importance of the oceans. Van Wijk's recipe for a map like Athelstan Spilhaus's is to remove Antarctica from the land: switch on Antarctica at Sea and the oceans hang together around the South Pole.",
              "drop")
         }
         var parameters: [LayoutParameter] = [
@@ -325,6 +325,10 @@ public struct GeoAlignedLayout: Layout {
         ]
         if style == .separated {
             parameters.append(.slider("fc", "Contour f_c", 0.05...0.95, step: 0.01, default: 0.3))
+        }
+        if style == .coastline {
+            parameters.append(.toggle("spilhaus", "Antarctica at sea", default: false,
+                                      help: "Spilhaus's ocean map: Antarctica leaves the land, so the oceans meet around the pole"))
         }
         if style == .northUp {
             parameters.append(.slider("wPhi", "Latitude weight W_φ", 0...1, step: 0.01, default: 0.25))
@@ -342,13 +346,19 @@ public struct GeoAlignedLayout: Layout {
         case .continents: descriptor.renamed(title: "Aligned with the Highlands", summary: "w = f: the highlands whole, cuts through the lowlands")
         case .northUp: descriptor.renamed(title: "North Up, South Down", summary: "f plus a graticular weight for a familiar layout")
         case .separated: descriptor.renamed(title: "Highlands and Lowlands", summary: "w = |f − f_c|: the outline follows the edge of the highlands")
-        case .coastline: descriptor.renamed(title: "The Rim of the Lowlands", summary: "w = −f: the lowlands in the middle, the highlands around them")
+        case .coastline: descriptor.renamed(title: "The Rim of the Lowlands", summary: "w = −f: the lowlands in the middle, the highlands around them",
+                                            parameters: descriptor.parameters.filter { $0.id != "spilhaus" })
         }
     }
 
     public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
         let sigma = ["5", "10", "15", "20"][min(max(p.index("sigma", default: 1), 0), 3)]
-        let f = try context.edgeValues(FieldKey("landDensity", sigma))
+        let spilhaus = style == .coastline && p.flag("spilhaus") && context.data.body.hasSeas
+        let f = spilhaus
+            ? try context.cached("edgeValues:landDensity-spilhaus:\(sigma)") {
+                context.edgeValues(of: try Self.landDensityWithoutAntarctica(context.data, sigma: Double(sigma)!))
+            }
+            : try context.edgeValues(FieldKey("landDensity", sigma))
         let lambda0 = p.value("lambda0", default: 10)
         // A whisper of structure where f is flat, so ties don't decide.
         let order = Weights.graticule(context.edges, phi0: 0, lambda0: lambda0, wPhi: 0.002, wLambda: 0.001)
@@ -361,9 +371,23 @@ public struct GeoAlignedLayout: Layout {
             Weights.add(f.map { abs($0 - p.value("fc", default: 0.3)) }, order)
         case .coastline: Weights.add(f.map { -$0 }, order)
         }
-        let rootLatitude: Double = style == .coastline ? -30 : 15
+        let rootLatitude: Double = spilhaus ? -75 : style == .coastline ? -30 : 15
         return LayoutCut(hinges: context.mesh.hinges(weights: weights),
                          root: Weights.root(context, latitude: rootLatitude, longitude: lambda0))
+    }
+
+    /// f with Antarctica taken out of the land raster.
+    static func landDensityWithoutAntarctica(_ data: BodyData, sigma: Double) throws -> GridField {
+        try data.cached("field:landDensity-spilhaus:\(sigma)") {
+            let raster = GridField.coverage(rings: try data.land().rings, width: 256, height: 128, supersample: 8)
+            var values = raster.values
+            for j in 0..<raster.height where raster.cellCenter(0, j).latitude < -60 {
+                for i in 0..<raster.width { values[j * raster.width + i] = 0 }
+            }
+            let sea = GridField(width: raster.width, height: raster.height, lon0: raster.lon0, lat0: raster.lat0,
+                                dlon: raster.dlon, dlat: raster.dlat, values: values)
+            return sea.sphericalGaussian(sigma: sigma, halfRows: max(32, Int((3 * sigma / raster.dlat).rounded(.up))))
+        }
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {

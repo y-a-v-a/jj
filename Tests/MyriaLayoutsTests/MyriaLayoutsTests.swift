@@ -210,6 +210,28 @@ struct ThemeTests {
     }
 
     /// "For the tetrahedron a perfect ... mapping is achieved." (figure 8)
+    @Test func spilhausPutsAntarcticaAtSea() throws {
+        // With −f the cuts run through the land, so Antarctica is torn up
+        // along the map's rim; without Antarctica in f it holds together at
+        // the centre of the oceans: neighbours across its cuts stay close.
+        func antarcticaTorn(_ spilhaus: Bool) throws -> Double {
+            let (context, cut) = try Shared.cut("geo-coastline", mesh: .geodesic(frequency: 32), ["spilhaus": spilhaus ? 1 : 0])
+            let projection = MyriahedralProjection(mesh: context.mesh, hinges: cut.hinges, root: cut.root)
+            let centers = projection.mapPolygons.map(Planar.centroid)
+            let typical = (4 * Double.pi / Double(context.mesh.faceCount)).squareRoot()
+            let cuts = context.mesh.topology.edges.indices.filter { e in
+                !cut.hinges[e] && GeoPoint(context.edges[e].midpoint).latitude < -72
+            }
+            let torn = cuts.filter { e in
+                let edge = context.mesh.topology.edges[e]
+                return (centers[edge.leftFace] - centers[edge.rightFace]).length > 6 * typical
+            }
+            return Double(torn.count) / Double(cuts.count)
+        }
+        let ocean = try antarcticaTorn(false), spilhaus = try antarcticaTorn(true)
+        #expect(spilhaus < ocean * 0.5, "Antarctica torn: \(ocean) without, \(spilhaus) with Antarctica at sea")
+    }
+
     @Test func tetrahedronFoldsOutWithoutCuttingLand() throws {
         let orientation = try PlatonicOptimizer.bestOrientation(.tetrahedron, data: Shared.data, step: 10)
         let context = try LayoutContext(spec: MeshSpec(.platonic(.tetrahedron, levels: 0), orientation: orientation),
