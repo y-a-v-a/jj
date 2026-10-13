@@ -82,6 +82,8 @@ shoreline of the ocean that may once have been there.
   closed, and unfolds the new map** (every layout closes into the same
   globe, so the swap is invisible), the globe turning to its new centre.
   ⌘T tours the whole gallery this way.
+- A time scrubber (±24 h) with a **time-lapse**: at an hour a second the
+  Day and Night map re-cuts continuously and the timezone clocks race.
 - Zoom with **⌘-scroll**, pinch, double-click or the **− = +** controls
   (⌘−, ⌘0, ⌘+); pan by dragging or scrolling; spin the globe when folded.
 - Hover cards with whatever is under the pointer (country, clock, plate,
@@ -97,6 +99,8 @@ shoreline of the ocean that may once have been there.
   (the yellow land and blue sea of the paper), **Atlas**, **Blueprint**,
   **Midnight**, **Ink** and **Terra**.
 - Export to 4K or 8K PNG, an unfolding GIF, or the clipboard.
+
+![Day and night, live, in the Terra palette](docs/app-light.jpg)
 
 ![The Midnight palette](docs/gallery-midnight.jpg)
 
@@ -156,8 +160,8 @@ swift build -c release --product jj
    map's origin, which is why every layout closes into the same globe.
 5. **Rendering** (`MyriaRender`). Faces live on the GPU in their own
    coordinates; one pose per face places them flat, folding or on the globe,
-   so a frame of a fold costs one small buffer write (1.9 ms for 81 920
-   faces, poses streamed in breadth-first order). Relief, colour scales, the
+   so a frame of a fold costs one buffer write (under 1 ms for 81 920
+   faces, subtrees posed in parallel). Relief, colour scales, the
    graticule and twilight are computed per pixel through the inverse
    gnomonic projection, so they stay exact at any zoom. Polygons (land,
    regions) are triangulated once per tile chunk with a Swift port of
@@ -178,7 +182,8 @@ swift build -c release --product jj
 
 ## Checked against the paper
 
-The tests (`swift test`; Swift Testing, about 150 cases) check the geometry,
+The tests (`swift test`; 102 Swift Testing tests, over 200 cases with their
+arguments) check the geometry,
 the data and each layout's theme, and render maps with Metal to look at
 the pixels:
 
@@ -201,8 +206,11 @@ the pixels:
 
 On an M2: a 1.875° timezone map (18 432 faces) cuts and unfolds in 0.14 s;
 81 920 faces in 0.18 s; a 0.5° graticule (259 200 faces) with land fills in
-under 2 s. Folding poses take 1.9 ms per frame at 81 920 faces and 6.8 ms at
-259 200; drawing is a handful of instanced draws.
+under 2 s. 259 200 faces fold in 4.4 ms per frame, 81 920 in under 1 ms: the fold plan
+is stored depth first, so the trunk is posed first and every subtree then
+on its own core, straight into a ring of GPU buffers. Drawing is a handful
+of instanced draws; overlays the first frame of a new map needs are
+prepared off the main thread.
 
 ## Layout
 
