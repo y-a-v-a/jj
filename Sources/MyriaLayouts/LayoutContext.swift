@@ -37,6 +37,10 @@ public final class LayoutContext: Sendable {
         try store.value(key, load)
     }
 
+    public func isCached(_ key: String) -> Bool { store.contains(key) }
+
+    public func hasFaceRegions(_ dataset: DatasetID) -> Bool { isCached("faceRegions:\(dataset)") }
+
     // MARK: Geometry
 
     public var faceCenters: [Vec3] {
@@ -95,7 +99,8 @@ public final class LayoutContext: Sendable {
     public func faceValues(_ key: FieldKey) throws -> [Double] {
         try cached("faceValues:\(key)") {
             let field = try data.field(key)
-            return parallelMap(mesh.faceCount) { field.value(at: self.faceCenters[$0]) }
+            let centers = faceCenters
+            return parallelMap(mesh.faceCount) { field.value(at: centers[$0]) }
         }
     }
 

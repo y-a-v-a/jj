@@ -15,7 +15,7 @@ public enum RenderError: Error, CustomStringConvertible {
         switch self {
         case .noDevice: "no Metal device"
         case .compile(let message): "shader compilation failed: \(message)"
-        case .allocation(let what): "could not allocate \(what)"
+        case .allocation(let what): "could not render: \(what)"
         }
     }
 }
@@ -79,6 +79,40 @@ final class RenderPipelines {
     }
 }
 
+/// Keys of resources being prepared off the main thread.
+final class PendingRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var keys = Set<String>()
+
+    /// True if the key was not pending yet (and now is).
+    func begin(_ key: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return keys.insert(key).inserted
+    }
+
+    func end(_ key: String) {
+        lock.lock()
+        keys.remove(key)
+        lock.unlock()
+    }
+}
+
+/// Buffers rewritten every frame, rotated so the CPU never writes one the
+/// GPU may still be reading (MTKView keeps at most three frames in flight).
+final class BufferRing {
+    private var buffers: [MTLBuffer?] = [nil, nil, nil]
+    private var index = 0
+
+    func next(_ device: MTLDevice, length: Int) -> MTLBuffer? {
+        index = (index + 1) % buffers.count
+        if buffers[index] == nil || buffers[index]!.length < length {
+            buffers[index] = device.makeBuffer(length: max(length, 16), options: .storageModeShared)
+        }
+        return buffers[index]
+    }
+}
+
 /// A GPU buffer with a count of elements.
 struct GPUArray {
     let buffer: MTLBuffer
@@ -104,8 +138,16 @@ public final class MapRenderer {
     public let sampleCount: Int
     let pipelines: RenderPipelines
 
+    /// Prepare missing overlays and fields off the calling thread and draw
+    /// without them meanwhile (the app), instead of building them on the
+    /// spot (exports, tests).
+    public var buildsAsynchronously = false
+    /// Called (on any thread) when something prepared in the background is ready.
+    public var onResourceReady: (@Sendable () -> Void)?
+    private let pending = PendingRequests()
+
     // Per mesh.
-    private var meshKey: ObjectIdentifier?
+    private var meshOverlays: MeshOverlays?
     private var frames: GPUArray?
     private var base: GPUArray?
     private var fills: [DatasetID: GPUArray] = [:]
@@ -119,12 +161,16 @@ public final class MapRenderer {
     private var highlightKey: [Int] = []
     private var highlight: GPUArray?
     private var regionPaints: [DatasetID: (slots: [Int: Int], count: Int)] = [:]
+    private var paintBuffers: [String: GPUArray] = [:]
     // Per frame.
     private var poseKey: (UUID, Double, Mat3)?
     private var poseBuffer: MTLBuffer?
-    // Textures.
-    private var fieldTextures: [FieldKey: (texture: MTLTexture, field: GridField)] = [:]
-    private var elevation: (texture: MTLTexture, field: GridField)?
+    private let poseRing = BufferRing()
+    private let foldScratch = Folding.FoldScratch()
+    private let lineRing = BufferRing()
+    // Textures, per world.
+    private var fieldTextures: [String: (texture: MTLTexture, field: GridField)] = [:]
+    private var elevations: [String: (texture: MTLTexture, field: GridField)] = [:]
     private var luts: [[RGBA]: MTLTexture] = [:]
     private var dummy: MTLTexture?
 
@@ -140,10 +186,34 @@ public final class MapRenderer {
 
     // MARK: Resources
 
+    /// Whether a resource can be used now. When building asynchronously and
+    /// it isn't ready, `work` runs in the background and the caller draws
+    /// without it this frame.
+    private func available(_ ready: Bool, key: String, _ work: @escaping @Sendable () -> Void) -> Bool {
+        guard buildsAsynchronously, !ready else { return true }
+        if pending.begin(key) {
+            let pending = self.pending, done = onResourceReady
+            Task.detached(priority: .userInitiated) {
+                work()
+                pending.end(key)
+                done?()
+            }
+        }
+        return false
+    }
+
+    private func available(_ item: MeshOverlays.Item, _ state: MapState) -> Bool {
+        let overlays = state.overlays
+        return available(overlays.isBuilt(item), key: "\(ObjectIdentifier(overlays)):\(item)") { overlays.prepare(item) }
+    }
+
+    private func available(_ key: FieldKey, _ data: BodyData) -> Bool {
+        available(data.isFieldLoaded(key), key: "\(data.body.id):field:\(key)") { _ = try? data.field(key) }
+    }
+
     private func prepareMesh(_ state: MapState) {
-        let key = ObjectIdentifier(state.overlays)
-        guard key != meshKey else { return }
-        meshKey = key
+        guard state.overlays !== meshOverlays else { return }
+        meshOverlays = state.overlays
         fills = [:]
         lines = [:]
         points = [:]
@@ -175,6 +245,7 @@ public final class MapRenderer {
         highlightKey = []
         highlight = nil
         regionPaints = [:]
+        paintBuffers = [:]
         // Both sides of every cut edge.
         let mesh = state.mesh, isCut = state.projection.unfolding.isCut
         var instances: [LineInstance] = []
@@ -239,7 +310,7 @@ public final class MapRenderer {
 
     private func fill(_ dataset: DatasetID, _ state: MapState) -> GPUArray? {
         if let cached = fills[dataset] { return cached }
-        guard let overlay = try? state.overlays.fills(dataset) else { return nil }
+        guard available(.fills(dataset), state), let overlay = try? state.overlays.fills(dataset) else { return nil }
         var vertices: [SurfaceVertex] = []
         vertices.reserveCapacity(overlay.positions.count)
         let mesh = state.mesh
@@ -263,9 +334,10 @@ public final class MapRenderer {
     }
 
     /// Line instances for an overlay, with a style index per segment.
-    private func lineArray(_ key: String, _ state: MapState, style: (Int32) -> UInt32 = { _ in 0 },
+    private func lineArray(_ key: String, _ state: MapState, item: MeshOverlays.Item? = nil, style: (Int32) -> UInt32 = { _ in 0 },
                            _ make: () throws -> LineOverlay) -> GPUArray? {
         if let cached = lines[key] { return cached }
+        if let item, !available(item, state) { return nil }
         guard let overlay = try? make() else { return nil }
         var instances: [LineInstance] = []
         instances.reserveCapacity(overlay.count)
@@ -334,13 +406,11 @@ public final class MapRenderer {
         if let key = poseKey, key.0 == state.id, key.1 == unfold, key.2 == globe, poseBuffer != nil { return }
         let count = state.mesh.faceCount + 1
         let length = count * MemoryLayout<FacePoseGPU>.stride
-        if poseBuffer == nil || poseBuffer!.length != length {
-            poseBuffer = device.makeBuffer(length: length, options: .storageModeShared)
-        }
-        // A frame may still be reading the buffer; the CPU writes are small
-        // and complete before this frame's commands are committed.
-        let poses = poseBuffer!.contents().bindMemory(to: FacePoseGPU.self, capacity: count)
-        state.poses.forEachPoseRows(unfold: unfold, globe: globe) { f, r0, r1, r2 in
+        // A fresh buffer of the ring: earlier frames may still read theirs.
+        guard let buffer = poseRing.next(device, length: length) else { return }
+        poseBuffer = buffer
+        let poses = buffer.contents().bindMemory(to: FacePoseGPU.self, capacity: count)
+        state.poses.forEachPoseRows(unfold: unfold, globe: globe, scratch: foldScratch) { f, r0, r1, r2 in
             poses[f] = FacePoseGPU(r0: r0, r1: r1, r2: r2)
         }
         // One more pose, the identity, for lines given in map coordinates.
@@ -354,7 +424,8 @@ public final class MapRenderer {
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r16Float, width: field.width, height: field.height,
                                                          mipmapped: false)
         d.usage = .shaderRead
-        d.storageMode = .shared
+        // Unified memory shares; discrete GPUs (Intel Macs) need managed storage.
+        d.storageMode = device.hasUnifiedMemory ? .shared : .managed
         guard let t = device.makeTexture(descriptor: d) else { return nil }
         let halves = field.values.map { Float16($0) }
         halves.withUnsafeBytes {
@@ -365,19 +436,21 @@ public final class MapRenderer {
     }
 
     private func fieldTexture(_ key: FieldKey, _ data: BodyData) -> (texture: MTLTexture, field: GridField)? {
-        if let cached = fieldTextures[key] { return cached }
-        guard let field = try? data.field(key), let t = texture(of: field) else { return nil }
+        let cacheKey = "\(data.body.id)/\(key)"
+        if let cached = fieldTextures[cacheKey] { return cached }
+        guard available(key, data), let field = try? data.field(key), let t = texture(of: field) else { return nil }
         if fieldTextures.count > 6 { fieldTextures.removeAll() }
-        fieldTextures[key] = (t, field)
+        fieldTextures[cacheKey] = (t, field)
         return (t, field)
     }
 
     private func elevationTexture(_ data: BodyData) -> (texture: MTLTexture, field: GridField)? {
-        if let elevation { return elevation }
-        guard data.body.has(.elevation), let field = try? data.field(FieldKey("elevation")), let t = texture(of: field)
+        if let cached = elevations[data.body.id] { return cached }
+        let key = FieldKey("elevation")
+        guard data.body.has(.elevation), available(key, data), let field = try? data.field(key), let t = texture(of: field)
         else { return nil }
-        elevation = (t, field)
-        return elevation
+        elevations[data.body.id] = (t, field)
+        return (t, field)
     }
 
     private func lut(_ rows: [[RGBA]]) -> MTLTexture? {
@@ -405,8 +478,9 @@ public final class MapRenderer {
         return t
     }
 
-    /// The value range a field's colour scale spans: robust quantiles.
-    static func range(of key: FieldKey, field: GridField, scale: FieldScale, data: BodyData) -> (Double, Double) {
+    /// The value range a field's colour scale spans: robust quantiles,
+    /// computed once per field and body.
+    public static func range(of key: FieldKey, field: GridField, scale: FieldScale, data: BodyData) -> (Double, Double) {
         (try? data.cached("range:\(key)") { () -> RangeBox in
             switch scale {
             case .diverging: RangeBox(lo: min(field.quantile(0.02), -1e-6), hi: max(field.quantile(0.995), 1e-6))
@@ -430,6 +504,8 @@ public final class MapRenderer {
         prepareState(state)
         preparePoses(state, unfold: s.unfold, globe: s.globe)
         guard let frames, let base, let poseBuffer else { return }
+        // Long arms of a folding map may reach past the depth range: clamp, don't clip.
+        encoder.setDepthClipMode(.clamp)
         var s = s
         let style = s.style
         let data = state.data
@@ -536,8 +612,11 @@ public final class MapRenderer {
             var paints = paints.isEmpty ? [PaintGPU(color: style.ocean.simd, mode: 0)] : paints
             if paints.count * MemoryLayout<PaintGPU>.stride <= 4096 {
                 encoder.setFragmentBytes(&paints, length: paints.count * MemoryLayout<PaintGPU>.stride, index: 1)
-            } else if let b = GPUArray(device, paints) {
-                encoder.setFragmentBuffer(b.buffer, offset: 0, index: 1)
+            } else {
+                // Large paint tables (countries, lakes) are kept between frames.
+                let key = "\(paints.count):\(paints.first.map { "\($0.color)\($0.mode)" } ?? ""):\(paints.last.map { "\($0.color)" } ?? "")"
+                if paintBuffers[key] == nil { paintBuffers[key] = GPUArray(device, paints) }
+                if let b = paintBuffers[key] { encoder.setFragmentBuffer(b.buffer, offset: 0, index: 1) }
             }
             if let facePaints {
                 encoder.setFragmentBuffer(facePaints.buffer, offset: 0, index: 2)
@@ -553,7 +632,11 @@ public final class MapRenderer {
             if case .relief = s.coloring { return surface.hasElevation == 1 ? 1 : 0 }
             return surface.hasElevation == 1 ? 2 : 0
         }()
-        if case .regions(let dataset) = s.coloring, let regions = fill(dataset, state) {
+        if case .regions(let dataset) = s.coloring,
+           available(state.context.hasFaceRegions(dataset), key: "\(state.id):regions:\(dataset)", { [context = state.context] in
+               _ = try? context.faceRegions(dataset)
+           }),
+           let regions = fill(dataset, state) {
             let count = (dataset == .timeZones ? (try? data.timeZones().regions.count) : (try? data.regions(dataset).count)) ?? 0
             let slots = regionSlots(dataset, state)
             let paints = (0..<max(count, 1)).map { r in
@@ -599,23 +682,23 @@ public final class MapRenderer {
 
         if s.layers.contains(.mesh) { drawLines(meshLines(state), [lineStyle(style.mesh, 0.6)]) }
         if s.layers.contains(.timeZoneBorders) {
-            drawLines(lineArray("tz", state) { try state.overlays.lines(.timeZones) }, [lineStyle(style.border, 0.7)])
+            drawLines(lineArray("tz", state, item: .lines(.timeZones)) { try state.overlays.lines(.timeZones) }, [lineStyle(style.border, 0.7)])
         }
         if s.layers.contains(.countryBorders) {
-            drawLines(lineArray("borders", state) { try state.overlays.lines(.countryBorders) }, [lineStyle(style.border, 0.8)])
+            drawLines(lineArray("borders", state, item: .lines(.countryBorders)) { try state.overlays.lines(.countryBorders) }, [lineStyle(style.border, 0.8)])
         }
         if s.layers.contains(.lakes) && s.layers.contains(.coastlines) {
-            drawLines(lineArray("lakeshores", state) { try state.overlays.lines(.lakes) }, [lineStyle(style.coastline, 0.5)])
+            drawLines(lineArray("lakeshores", state, item: .lines(.lakes)) { try state.overlays.lines(.lakes) }, [lineStyle(style.coastline, 0.5)])
         }
         if s.layers.contains(.rivers) {
-            drawLines(lineArray("rivers", state, style: { $0 <= 2 ? 0 : ($0 <= 4 ? 1 : 2) }) { try state.overlays.lines(.rivers) },
+            drawLines(lineArray("rivers", state, item: .lines(.rivers), style: { $0 <= 2 ? 0 : ($0 <= 4 ? 1 : 2) }) { try state.overlays.lines(.rivers) },
                       [lineStyle(style.river, 1.6), lineStyle(style.river, 1.0), lineStyle(style.river.withAlpha(style.river.a * 0.8), 0.6)])
         }
         if s.layers.contains(.coastlines) {
-            drawLines(lineArray("coast", state) { try state.overlays.coastlines() }, [lineStyle(style.coastline, 0.75)])
+            drawLines(lineArray("coast", state, item: .coastlines) { try state.overlays.coastlines() }, [lineStyle(style.coastline, 0.75)])
         }
         if s.layers.contains(.plateBoundaries) {
-            drawLines(lineArray("plates", state, style: { UInt32(max(0, min($0, 4))) }) { try state.overlays.lines(.plateBoundaries) },
+            drawLines(lineArray("plates", state, item: .lines(.plateBoundaries), style: { UInt32(max(0, min($0, 4))) }) { try state.overlays.lines(.plateBoundaries) },
                       PlateBoundaryKind.allCases.map { lineStyle(style.boundary($0), $0 == .other ? 1.0 : 1.8, glow: 0) })
         }
         if s.layers.contains(.flights) {
@@ -623,13 +706,13 @@ public final class MapRenderer {
             // Light pages get fewer, finer arcs; on dark ones they glow.
             let limit = darkPage ? 2500 : 1200
             let k = darkPage ? 1.0 : 0.6
-            drawLines(lineArray("flights:\(limit)", state, style: { $0 >= 6 ? 0 : ($0 >= 3 ? 1 : 2) }) { try state.overlays.flightArcs(limit: limit) },
+            drawLines(lineArray("flights:\(limit)", state, item: .flights(limit: limit), style: { $0 >= 6 ? 0 : ($0 >= 3 ? 1 : 2) }) { try state.overlays.flightArcs(limit: limit) },
                       [lineStyle(style.route.withAlpha(min(style.route.a * 2 * k, 1)), 0.9, glow: darkPage ? 2 : 0),
                        lineStyle(style.route.withAlpha(style.route.a * 1.2 * k), 0.6, glow: darkPage ? 1 : 0),
                        lineStyle(style.route.withAlpha(style.route.a * 0.8 * k), 0.45)])
         }
         if s.layers.contains(.tissot) {
-            drawLines(lineArray("tissot", state) { state.overlays.tissot() }, [lineStyle(style.tissot, 1.1)])
+            drawLines(lineArray("tissot", state, item: .tissot) { state.overlays.tissot() }, [lineStyle(style.tissot, 1.1)])
         }
         if s.layers.contains(.cuts) { drawLines(cutLines, [lineStyle(style.cut, 0.9)]) }
         if !s.highlightGroups.isEmpty, !folded {
@@ -642,14 +725,20 @@ public final class MapRenderer {
                 LineInstance(a: SIMD2(Float(l.a.x), Float(l.a.y)), b: SIMD2(Float(l.b.x), Float(l.b.y)), face: face,
                              style: UInt32(min(buckets - 1, max(0, Int(l.alpha * Float(buckets))))))
             }
-            drawLines(GPUArray(device, instances),
-                      (0..<buckets).map { lineStyle(style.wind.withAlpha(style.wind.a * (Double($0) + 1) / Double(buckets)), 1.1) })
+            let length = instances.count * MemoryLayout<LineInstance>.stride
+            if let buffer = lineRing.next(device, length: length) {
+                instances.withUnsafeBytes { buffer.contents().copyMemory(from: $0.baseAddress!, byteCount: length) }
+                var styles = (0..<buckets).map { lineStyle(style.wind.withAlpha(style.wind.a * (Double($0) + 1) / Double(buckets)), 1.1) }
+                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                encoder.setVertexBytes(&styles, length: styles.count * MemoryLayout<LineStyleGPU>.stride, index: 2)
+                encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: instances.count)
+            }
         }
 
         // Points.
         encoder.setRenderPipelineState(pipelines.point)
         encoder.setVertexBuffer(poseBuffer, offset: 0, index: 1)
-        if s.layers.contains(.cities) {
+        if s.layers.contains(.cities), points["cities"] != nil || available(.cities(limit: 600), state) {
             let cities = pointArray("cities") {
                 let overlay = try state.overlays.cities()
                 let places = try data.places().places
@@ -695,7 +784,8 @@ public final class MapRenderer {
             guard let t = device.makeTexture(descriptor: d) else { throw RenderError.allocation("\(width)×\(height) target") }
             return t
         }
-        let resolve = try texture(pixelFormat, samples: 1, usage: [.renderTarget, .shaderRead], storage: .shared)
+        let resolve = try texture(pixelFormat, samples: 1, usage: [.renderTarget, .shaderRead],
+                                  storage: device.hasUnifiedMemory ? .shared : .managed)
         let pass = MTLRenderPassDescriptor()
         let color = pass.colorAttachments[0]!
         if sampleCount > 1 {
@@ -719,8 +809,13 @@ public final class MapRenderer {
         }
         encode(state, settings: settings, into: encoder, drawableSize: CGSize(width: width, height: height))
         encoder.endEncoding()
+        if resolve.storageMode == .managed, let blit = buffer.makeBlitCommandEncoder() {
+            blit.synchronize(resource: resolve)
+            blit.endEncoding()
+        }
         buffer.commit()
         buffer.waitUntilCompleted()
+        if let error = buffer.error { throw RenderError.allocation("GPU work failed: \(error)") }
 
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         resolve.getBytes(&bytes, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)

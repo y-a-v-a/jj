@@ -180,11 +180,14 @@ struct Stats: ParsableCommand {
         // Animation costs: poses per frame on the CPU, a frame on the GPU.
         var t = Date()
         let frames = 20
-        var sink: Float = 0
-        for k in 0..<frames {
-            state.poses.forEachPoseRows(unfold: Double(k) / Double(frames), globe: .identity) { _, r0, _, _ in sink += r0.w }
+        let scratch = Folding.FoldScratch()
+        var rows = [SIMD4<Float>](repeating: .zero, count: state.mesh.faceCount)
+        rows.withUnsafeMutableBufferPointer { buffer in
+            nonisolated(unsafe) let out = buffer
+            for k in 0..<frames {
+                state.poses.forEachPoseRows(unfold: Double(k) / Double(frames), globe: .identity, scratch: scratch) { f, r0, _, _ in out[f] = r0 }
+            }
         }
-        if sink.isNaN { print("") }
         print(String(format: "Fold poses:   %.2f ms per frame", Date().timeIntervalSince(t) * 1000 / Double(frames)))
         let renderer = try MapRenderer()
         let settings = MapExport.settings(for: state, palette: .vanWijk, dark: false, width: 2400, height: 1500, unfold: 0.5)

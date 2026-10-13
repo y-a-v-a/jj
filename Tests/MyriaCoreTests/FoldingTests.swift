@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import simd
 @testable import MyriaCore
 
 @Suite("Folding")
@@ -82,15 +83,24 @@ struct FastFoldingTests {
         let weights = UnfoldingTests.pseudoRandomWeights(mesh.edgeCount, seed: 3)
         let folding = Folding(projection: mesh.unfold(weights: weights, root: 5))
         let reference = folding.poses(unfold: unfold)
-        var seen = 0
-        folding.forEachPose(unfold: unfold) { f, r, t in
-            seen += 1
-            let p = reference[f]
+        // Poses arrive concurrently, one call per face: collect by face.
+        var rotations = [simd_double3x3?](repeating: nil, count: mesh.faceCount)
+        var translations = [SIMD3<Double>](repeating: .zero, count: mesh.faceCount)
+        rotations.withUnsafeMutableBufferPointer { r in
+            translations.withUnsafeMutableBufferPointer { t in
+                nonisolated(unsafe) let (R, T) = (r, t)
+                folding.forEachPose(unfold: unfold) { f, rotation, translation in
+                    R[f] = rotation
+                    T[f] = translation
+                }
+            }
+        }
+        for f in 0..<mesh.faceCount {
+            let r = try #require(rotations[f]), t = translations[f], p = reference[f]
             for (col, c) in [(0, p.rotation.c0), (1, p.rotation.c1), (2, p.rotation.c2)] {
                 #expect(abs(r[col].x - c.x) < 1e-9 && abs(r[col].y - c.y) < 1e-9 && abs(r[col].z - c.z) < 1e-9)
             }
             #expect(abs(t.x - p.translation.x) < 1e-9 && abs(t.y - p.translation.y) < 1e-9 && abs(t.z - p.translation.z) < 1e-9)
         }
-        #expect(seen == mesh.faceCount)
     }
 }

@@ -118,7 +118,7 @@ public final class MapPoses: Sendable {
 
     /// Writes the poses at `unfold` as rows of 3 × 4 matrices, one call per
     /// face in no particular order, for the GPU. Allocation-free per face.
-    public func forEachPoseRows(unfold t: Double, globe: Mat3,
+    public func forEachPoseRows(unfold t: Double, globe: Mat3, scratch: Folding.FoldScratch? = nil,
                                 _ body: (Int, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) -> Void) {
         if t >= 1 {
             for (f, m) in projection.unfolding.transforms.enumerated() {
@@ -131,7 +131,7 @@ public final class MapPoses: Sendable {
         let q = Quaternion.slerp(Quaternion(start.rotation), .identity, t).matrix
         let qm = simd_double3x3(SIMD3(q.c0.x, q.c0.y, q.c0.z), SIMD3(q.c1.x, q.c1.y, q.c1.z), SIMD3(q.c2.x, q.c2.y, q.c2.z))
         let qt = SIMD3(start.translation.x, start.translation.y, start.translation.z) * (1 - t)
-        folding.forEachPose(unfold: t) { f, r, tr in
+        folding.forEachPose(unfold: t, scratch: scratch) { f, r, tr in
             let m = qm * r, v = qm * tr + qt
             body(f, SIMD4(Float(m[0][0]), Float(m[1][0]), Float(m[2][0]), Float(v.x)),
                  SIMD4(Float(m[0][1]), Float(m[1][1]), Float(m[2][1]), Float(v.y)),

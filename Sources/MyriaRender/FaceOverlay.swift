@@ -121,6 +121,42 @@ public final class MeshOverlays: Sendable {
 
     public func isBuilt(_ key: String) -> Bool { store.contains(key) }
 
+    /// The overlays renderers ask for, by name, so they can be prepared
+    /// ahead of time or off the main thread.
+    public enum Item: Hashable, Sendable {
+        case fills(DatasetID)
+        case lines(DatasetID)
+        case coastlines
+        case flights(limit: Int)
+        case tissot
+        case cities(limit: Int)
+
+        var key: String {
+            switch self {
+            case .fills(let d): "fills:\(d)"
+            case .lines(let d): "lines:\(d)"
+            case .coastlines: "lines:coastlines"
+            case .flights(let n): "lines:flights:\(n)"
+            case .tissot: "lines:tissot"
+            case .cities(let n): "points:cities:\(n)"
+            }
+        }
+    }
+
+    public func isBuilt(_ item: Item) -> Bool { store.contains(item.key) }
+
+    /// Builds an overlay if it isn't yet.
+    public func prepare(_ item: Item) {
+        switch item {
+        case .fills(let d): _ = try? fills(d)
+        case .lines(let d): _ = try? lines(d)
+        case .coastlines: _ = try? coastlines()
+        case .flights(let n): _ = try? flightArcs(limit: n)
+        case .tissot: _ = tissot()
+        case .cities(let n): _ = try? cities(limit: n); _ = try? data.places()
+        }
+    }
+
     // MARK: Fills
 
     /// Polygon fills: land, lakes or the regions of a dataset.
@@ -206,7 +242,7 @@ public final class MeshOverlays: Sendable {
     }
 
     public func coastlines() throws -> LineOverlay {
-        try lines("coastlines", try data.land().coastlines)
+        try store.value(Item.coastlines.key) { clip(try data.land().coastlines) }
     }
 
     /// Lines of a dataset: rivers, plate boundaries, country borders, or the
@@ -246,7 +282,7 @@ public final class MeshOverlays: Sendable {
     /// Great-circle arcs of the busiest air routes; the attribute is the
     /// number of airlines flying the route.
     public func flightArcs(limit: Int = 6000) throws -> LineOverlay {
-        try store.value("lines:flights:\(limit)") {
+        try store.value(Item.flights(limit: limit).key) {
             let network = try data.flights()
             let routes = network.routes.sorted { $0.count > $1.count }.prefix(limit)
             var polylines: [[Vec2]] = []
@@ -266,7 +302,7 @@ public final class MeshOverlays: Sendable {
     /// Tissot's indicatrices: small circles of `radius` degrees every
     /// `spacing` degrees. On a myriahedral map they stay round.
     public func tissot(spacing: Double = 30, radius: Double = 4) -> LineOverlay {
-        store.value("lines:tissot:\(spacing):\(radius)") {
+        store.value(spacing == 30 && radius == 4 ? Item.tissot.key : "lines:tissot:\(spacing):\(radius)") {
             var circles: [[Vec2]] = []
             for lat in stride(from: -90 + spacing / 2, through: 90 - spacing / 2, by: spacing) {
                 for lon in stride(from: -180.0, to: 180, by: spacing) {
@@ -299,7 +335,7 @@ public final class MeshOverlays: Sendable {
 
     /// Cities, each placed in its face.
     public func cities(limit: Int = 600) throws -> PointOverlay {
-        try store.value("points:cities:\(limit)") {
+        try store.value(Item.cities(limit: limit).key) {
             let places = try data.places().places.prefix(limit)
             return place(places.map(\.location.unitVector))
         }

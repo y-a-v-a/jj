@@ -276,6 +276,12 @@ public final class BodyData: Sendable {
 
     // MARK: Fields
 
+    /// Whether a field has been computed already.
+    public func isFieldLoaded(_ key: FieldKey) -> Bool {
+        guard let descriptor = body.field(key.id) else { return false }
+        return isLoaded("field:\(key.id):\(key.variant.isEmpty ? descriptor.defaultVariant : key.variant)")
+    }
+
     public func field(_ key: FieldKey) throws -> GridField {
         guard let descriptor = body.field(key.id) else { throw BodyDataError.unknownField(key.id) }
         let variant = key.variant.isEmpty ? descriptor.defaultVariant : key.variant

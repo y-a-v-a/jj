@@ -104,21 +104,63 @@ public struct Folding: Sendable {
         self.hingeAxis = hingeAxis
         self.closingAngle = closingAngle
 
-        // The same data in breadth-first order, as simd values, so a frame
-        // streams through memory instead of hopping around it.
+        // The same data in depth-first order, as simd values: a frame streams
+        // through memory, and every subtree is one contiguous range, so the
+        // subtrees can be posed in parallel once their roots are.
+        var children = Array(repeating: [Int](), count: n)
+        for f in 0..<n where unfolding.parent[f] >= 0 { children[unfolding.parent[f]].append(f) }
+        var dfs: [Int] = []
+        dfs.reserveCapacity(n)
+        var stack = [unfolding.root]
+        while let f = stack.popLast() {
+            dfs.append(f)
+            stack.append(contentsOf: children[f].reversed())
+        }
         var position = Array(repeating: 0, count: n)
-        for (i, f) in order.enumerated() { position[f] = i }
+        for (i, f) in dfs.enumerated() { position[f] = i }
+        var size = Array(repeating: 1, count: n)
+        for f in dfs.reversed() where unfolding.parent[f] >= 0 { size[unfolding.parent[f]] += size[f] }
+        // Split off subtrees of at most n/64 faces; what remains is the trunk.
+        let limit = max(256, n / 64)
+        var trunk: [Int32] = []
+        var tasks: [ClosedRange<Int32>] = []
+        var queue = [unfolding.root]
+        while let f = queue.popLast() {
+            if size[f] <= limit && f != unfolding.root {
+                tasks.append(Int32(position[f])...Int32(position[f] + size[f] - 1))
+            } else {
+                trunk.append(Int32(position[f]))
+                queue.append(contentsOf: children[f])
+            }
+        }
+        trunk.sort()
         plan = Plan(
-            face: order.map { Int32($0) },
-            parent: order.map { unfolding.parent[$0] < 0 ? -1 : Int32(position[unfolding.parent[$0]]) },
-            axis: order.map { SIMD3(hingeAxis[$0].x, hingeAxis[$0].y, hingeAxis[$0].z) },
-            point: order.map { SIMD3(hingePoint[$0].x, hingePoint[$0].y, hingePoint[$0].z) },
-            angle: order.map { closingAngle[$0] },
-            flatR: order.map { f in
+            face: dfs.map { Int32($0) },
+            parent: dfs.map { unfolding.parent[$0] < 0 ? -1 : Int32(position[unfolding.parent[$0]]) },
+            axis: dfs.map { SIMD3(hingeAxis[$0].x, hingeAxis[$0].y, hingeAxis[$0].z) },
+            point: dfs.map { SIMD3(hingePoint[$0].x, hingePoint[$0].y, hingePoint[$0].z) },
+            angle: dfs.map { closingAngle[$0] },
+            flatR: dfs.map { f in
                 let r = flat[f].rotation
                 return simd_double3x3(SIMD3(r.c0.x, r.c0.y, r.c0.z), SIMD3(r.c1.x, r.c1.y, r.c1.z), SIMD3(r.c2.x, r.c2.y, r.c2.z))
             },
-            flatT: order.map { SIMD3(flat[$0].translation.x, flat[$0].translation.y, flat[$0].translation.z) })
+            flatT: dfs.map { SIMD3(flat[$0].translation.x, flat[$0].translation.y, flat[$0].translation.z) },
+            trunk: trunk, tasks: tasks)
+    }
+
+    /// Working memory for `forEachPose`, kept between frames by its owner.
+    public final class FoldScratch {
+        var rotations: [simd_double3x3] = []
+        var translations: [SIMD3<Double>] = []
+
+        public init() {}
+
+        func reserve(_ n: Int) {
+            if rotations.count < n {
+                rotations = [simd_double3x3](repeating: matrix_identity_double3x3, count: n)
+                translations = [SIMD3<Double>](repeating: .zero, count: n)
+            }
+        }
     }
 
     struct Plan: Sendable {
@@ -129,18 +171,24 @@ public struct Folding: Sendable {
         let angle: [Double]
         let flatR: [simd_double3x3]
         let flatT: [SIMD3<Double>]
+        /// Positions posed one after another before the subtrees.
+        let trunk: [Int32]
+        /// Contiguous subtrees posed in parallel.
+        let tasks: [ClosedRange<Int32>]
     }
 
     let plan: Plan
 
-    /// The same poses as `poses(unfold:)`, computed with simd and handed to
-    /// `body` parents first, without allocating per face. Renderers call this
-    /// every frame of a fold.
-    public func forEachPose(unfold: Double, _ body: (Int, simd_double3x3, SIMD3<Double>) -> Void) {
+    /// The same poses as `poses(unfold:)`, computed with simd, without
+    /// allocating per face. Renderers call this every frame of a fold.
+    ///
+    /// `body` is called once per face, concurrently from several threads,
+    /// so it must only write to state owned by that face.
+    public func forEachPose(unfold: Double, scratch: FoldScratch? = nil, _ body: (Int, simd_double3x3, SIMD3<Double>) -> Void) {
         let closing = 1 - min(max(unfold, 0), 1)
         let n = plan.face.count
-        var rotations = [simd_double3x3](repeating: matrix_identity_double3x3, count: n)
-        var translations = [SIMD3<Double>](repeating: .zero, count: n)
+        let work = scratch ?? FoldScratch()
+        work.reserve(n)
         plan.face.withUnsafeBufferPointer { face in
         plan.parent.withUnsafeBufferPointer { parent in
         plan.axis.withUnsafeBufferPointer { axis in
@@ -148,13 +196,16 @@ public struct Folding: Sendable {
         plan.angle.withUnsafeBufferPointer { angle in
         plan.flatR.withUnsafeBufferPointer { flatR in
         plan.flatT.withUnsafeBufferPointer { flatT in
-        rotations.withUnsafeMutableBufferPointer { R in
-        translations.withUnsafeMutableBufferPointer { T in
-            for i in 0..<n {
+        work.rotations.withUnsafeMutableBufferPointer { rotations in
+        work.translations.withUnsafeMutableBufferPointer { translations in
+            // Buffer pointers are values; writing through them needs no inout.
+            let R = rotations, T = translations
+            @inline(__always) func pose(_ i: Int) {
                 let p = Int(parent[i])
                 guard p >= 0 else {
-                    body(Int(face[i]), R[i], T[i])
-                    continue
+                    R[i] = matrix_identity_double3x3
+                    T[i] = .zero
+                    return
                 }
                 let k = axis[i]
                 let a = angle[i] * closing
@@ -168,7 +219,21 @@ public struct Folding: Sendable {
                 let local = hinge * (flatT[i] - point[i]) + point[i]
                 R[i] = R[p] * hinge * flatR[i]
                 T[i] = R[p] * local + T[p]
-                body(Int(face[i]), R[i], T[i])
+            }
+            // The trunk in order, then every subtree on its own core: each
+            // writes only its own range and reads only its root's parent.
+            for i in plan.trunk {
+                pose(Int(i))
+                body(Int(face[Int(i)]), R[Int(i)], T[Int(i)])
+            }
+            let tasks = plan.tasks
+            nonisolated(unsafe) let compute = pose
+            nonisolated(unsafe) let deliver = body
+            DispatchQueue.concurrentPerform(iterations: tasks.count) { t in
+                for i in tasks[t] {
+                    compute(Int(i))
+                    deliver(Int(face[Int(i)]), R[Int(i)], T[Int(i)])
+                }
             }
         }}}}}}}}}
     }
