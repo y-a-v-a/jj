@@ -140,7 +140,7 @@ struct MapArea: View {
 }
 
 extension MapArea {
-    static let space = "mapArea"
+    nonisolated static let space = "mapArea"
 }
 
 private extension View {

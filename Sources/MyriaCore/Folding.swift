@@ -229,10 +229,12 @@ public struct Folding: Sendable {
             let tasks = plan.tasks
             nonisolated(unsafe) let compute = pose
             nonisolated(unsafe) let deliver = body
+            // Each task writes its own subtree's slots.
+            nonisolated(unsafe) let (faces, rotations, translations) = (face, R, T)
             DispatchQueue.concurrentPerform(iterations: tasks.count) { t in
                 for i in tasks[t] {
                     compute(Int(i))
-                    deliver(Int(face[Int(i)]), R[Int(i)], T[Int(i)])
+                    deliver(Int(faces[Int(i)]), rotations[Int(i)], translations[Int(i)])
                 }
             }
         }}}}}}}}}
