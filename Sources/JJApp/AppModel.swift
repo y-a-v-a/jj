@@ -473,6 +473,9 @@ final class AppModel {
         hover = nil
         status = Self.describe(new)
         computeLabels()
+        // Ready the names to search before anyone types.
+        let data = new.data
+        Task.detached(priority: .utility) { _ = Gazetteer.of(data) }
         if let u = launchUnfold {
             launchUnfold = nil
             unfold = u
@@ -608,61 +611,19 @@ final class AppModel {
 
     // MARK: Search
 
-    struct Place: Identifiable, Hashable {
-        var id: String { "\(kind):\(title):\(subtitle)" }
-        let kind: String
-        let title: String
-        let subtitle: String
-        let location: GeoPoint
-    }
-
     var searchText = ""
     /// The place found last, and when, for the marker's pulse.
     @ObservationIgnored private(set) var found: (location: GeoPoint, time: CFTimeInterval)?
 
-    /// Places matching the search text: cities, countries and oceans, or a
+    /// Places matching the search text: countries, oceans and cities, or a
     /// world's named features.
-    var searchResults: [Place] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard query.count >= 2 else { return [] }
-        let data = BodyData.of(body)
-        var results: [Place] = []
-        func matches(_ name: String) -> Bool { name.lowercased().hasPrefix(query) || name.lowercased().contains(" " + query) }
-        if body.has(.countries), let countries = try? data.regions(.countries) {
-            for c in countries.regions where matches(c.name) {
-                if let label = c.labelPoint { results.append(Place(kind: "country", title: c.name, subtitle: "Country", location: label)) }
-            }
-        }
-        if body.has(.places), let places = try? data.places() {
-            for p in places.places where matches(p.name) {
-                results.append(Place(kind: "city", title: p.name, subtitle: p.country, location: p.location))
-                if results.count > 24 { break }
-            }
-        }
-        if body.has(.land) {
-            for basin in OceanBasin.allCases where matches(basin.title) {
-                let point: GeoPoint = switch basin {
-                case .atlantic: GeoPoint(latitude: 20, longitude: -40)
-                case .pacific: GeoPoint(latitude: 0, longitude: -150)
-                case .indian: GeoPoint(latitude: -20, longitude: 80)
-                case .southern: GeoPoint(latitude: -65, longitude: 0)
-                case .arctic: GeoPoint(latitude: 85, longitude: 0)
-                }
-                results.append(Place(kind: "ocean", title: basin.title, subtitle: "Ocean", location: point))
-            }
-        }
-        if body.has(.features), let features = try? data.features() {
-            for f in features.features where matches(f.name) {
-                results.append(Place(kind: "feature", title: f.name, subtitle: "\(f.type), \(Int(f.diameter)) km", location: f.location))
-                if results.count > 24 { break }
-            }
-        }
-        return Array(results.prefix(12))
+    var searchResults: [Gazetteer.Entry] {
+        Gazetteer.of(BodyData.of(body)).search(searchText)
     }
 
     /// Shows where a place ended up: on the flat map the camera flies there,
     /// on the globe the globe turns to face it.
-    func reveal(_ place: Place) {
+    func reveal(_ place: Gazetteer.Entry) {
         guard let state else { return }
         found = (place.location, CACurrentMediaTime())
         if liveUnfold < 1 {

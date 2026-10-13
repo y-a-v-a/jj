@@ -277,3 +277,36 @@ struct OtherWorldLayoutTests {
         #expect(nearShare > 1.4 * overall)
     }
 }
+
+@Suite("Finding places")
+struct GazetteerTests {
+    @Test func findsCitiesWithoutTheirAccents() throws {
+        let earth = Gazetteer.of(.earth)
+        let sao = try #require(earth.search("sao paulo").first)
+        #expect(sao.name == "São Paulo" && sao.kind == .city)
+        #expect(abs(sao.location.latitude - -23.5) < 1 && abs(sao.location.longitude - -46.6) < 1)
+        // Whole names come before names that merely start with the query.
+        #expect(earth.search("Paris").first?.name == "Paris")
+        #expect(earth.search("amster").first?.name == "Amsterdam")
+        // A word inside a name counts: "york" finds New York.
+        #expect(earth.search("york").contains { $0.name == "New York" })
+    }
+
+    @Test func countriesAndOceansComeFirst() throws {
+        let earth = Gazetteer.of(.earth)
+        #expect(earth.search("netherlands").first?.kind == .country)
+        let pacific = try #require(earth.search("pacific").first)
+        #expect(pacific.kind == .ocean)
+        #expect(OceanBasin(pacific.location) == .pacific)
+        for basin in OceanBasin.allCases { #expect(OceanBasin(basin.labelPoint) == basin) }
+    }
+
+    @Test func otherWorldsHaveTheirOwnNames() throws {
+        let moon = Gazetteer.of(.moon), mars = Gazetteer.of(.mars)
+        let karman = try #require(moon.search("von karman").first)
+        #expect(karman.name.hasPrefix("Von K") && karman.kind == .feature)
+        #expect(mars.search("olympus mons").first?.name == "Olympus Mons")
+        #expect(mars.search("paris").allSatisfy { $0.kind == .feature })
+        #expect(moon.search("x").isEmpty)
+    }
+}

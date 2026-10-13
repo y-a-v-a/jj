@@ -32,8 +32,8 @@ struct ContentView: View {
                             model.reveal(place)
                         } label: {
                             VStack(alignment: .leading) {
-                                Text(place.title)
-                                Text(place.subtitle).font(.caption).foregroundStyle(.secondary)
+                                Text(place.name)
+                                Text(place.detail).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
