@@ -136,7 +136,7 @@ enum EarthFields {
 
 /// Points along every coastline, for exact distances to the coast.
 public struct CoastIndex: Sendable {
-    let index: PointIndex
+    public let index: PointIndex
 
     public init(land: LandMask, step: Double = 0.0025) {
         var points: [Vec3] = []

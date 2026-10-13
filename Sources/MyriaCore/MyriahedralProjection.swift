@@ -115,6 +115,23 @@ public struct MyriahedralProjection: Sendable {
         return nil
     }
 
+    /// Faces lying (partly) on top of another face: their centroid falls
+    /// inside a face they are not. Van Wijk: fold-overs are rare.
+    public func overlappingFaces() -> [Int] {
+        (0..<mesh.faceCount).filter { f in
+            let c = Planar.centroid(mapPolygons[f])
+            return mapIndex.candidates(c).contains { g in
+                g != f && Planar.convexContains(mapPolygons[g], c, tolerance: -1e-12)
+            }
+        }
+    }
+
+    /// Area fraction of the map covered by overlapping faces.
+    public func overlapFraction() -> Double {
+        let total = (0..<mesh.faceCount).reduce(0.0) { $0 + mesh.frames[$1].area }
+        return overlappingFaces().reduce(0.0) { $0 + mesh.frames[$1].area } / max(total, 1e-300)
+    }
+
     /// Edges where the map is cut open.
     public var cutEdges: [Int] { unfolding.isCut.indices.filter { unfolding.isCut[$0] } }
 

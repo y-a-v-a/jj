@@ -8,6 +8,10 @@ public struct PolygonChunk: Sendable {
     public let rings: [[Vec2]]
     /// The same rings as unit vectors, edges read as great-circle arcs.
     public let sphereRings: [[Vec3]]
+    /// The chunk triangulated once in longitude/latitude, three corners per
+    /// triangle as unit vectors. Clipping convex triangles to faces cannot
+    /// produce the zero-width bridges that clipping concave rings does.
+    public let triangles: [Vec3]
     public let bounds: Rect2
 
     /// Even-odd containment over all rings, so holes are respected.
@@ -59,10 +63,12 @@ public struct PolygonLayer: Sendable {
                     }
                     // A hole without its outer ring can't occur: holes lie inside the outer ring.
                     guard !clipped.isEmpty, Planar.signedArea(clipped[0]) > 0 else { continue }
+                    let (vertices, indices) = Earcut.triangulate(rings: clipped)
                     tiles[tile].append(PolygonChunk(
                         feature: feature,
                         rings: clipped,
                         sphereRings: clipped.map { $0.map { GeoPoint(latitude: $0.y, longitude: $0.x).unitVector } },
+                        triangles: indices.map { GeoPoint(latitude: vertices[$0].y, longitude: vertices[$0].x).unitVector },
                         bounds: Rect2(bounding: clipped[0])))
                 }
             }

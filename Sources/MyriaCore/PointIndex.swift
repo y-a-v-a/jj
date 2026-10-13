@@ -4,7 +4,7 @@ import Foundation
 /// queries. Chord length grows with arc length, so the nearest point in 3D
 /// is also the nearest along the sphere.
 public struct PointIndex: Sendable {
-    let points: [Vec3]
+    public let points: [Vec3]
     /// Point indices in tree order; node `n` covers `order[lo..<hi]` with its
     /// splitting point at the median.
     let order: [Int32]
