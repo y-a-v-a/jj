@@ -244,6 +244,13 @@ swift build -c release --product jj
    Mapbox's earcut and clipped to faces as convex triangles; lines are
    instanced quads with analytic antialiasing. Sub-pixel slits are sealed by
    dilating face edges by 0.6 px (switchable, for van Wijk's "transparency").
+6. **Closing and printing** (`MyriaCore`). `ClosedGaps` zips corresponding
+   vertices together and relaxes the map as-rigid-as-possible (figure 13);
+   since a closed triangle stays a triangle, the renderer only swaps rigid
+   poses for affine ones. `PaperNet` splits a net into pieces that fit a
+   sheet and do not overlap, places glue tabs (most constrained seams
+   first) and nests the pieces onto sheets on a 1 mm raster; `PaperGlobe`
+   (`MyriaRender`) prints it as a vector PDF over tiled map imagery.
 
 ### Adding things
 
@@ -253,8 +260,12 @@ swift build -c release --product jj
 - **A palette**: a `Palette` with a light and a dark `PaletteStyle`,
   appended to `Palette.all`.
 - **A world**: a `Body` with its resource folder, datasets and fields
-  (see `Bodies.swift` for the Moon and Mars). Layouts appear for every body
-  that has the data they need.
+  (see `Bodies.swift` for the Moon, Mars and Venus) and a `jj-data`
+  step that writes its resources. Layouts appear for every body that has
+  the data they need, under names that suit it (`descriptor(for:)`), and
+  can look different there (`appearance(_:for:)`); search, labels, paper
+  globes and films come along.
+- **A field**: a `FieldDescriptor` on a body; Field Lab offers it at once.
 
 ## Checked against the paper
 
