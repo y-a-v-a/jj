@@ -347,6 +347,8 @@ struct LabelLayer: View {
         let style = model.style
         let date = model.date
         var placed = occluded.map { $0.insetBy(dx: -4, dy: -4) }
+        let top = model.viewInsets.top
+        let bounds = CGRect(x: 0, y: top, width: size.width, height: size.height - top).insetBy(dx: 4, dy: 4)
         for label in model.labels.sorted(by: { $0.room > $1.room }) {
             let roomPx = label.room * viewport.scale
             let q = viewport.toView(label.position)
@@ -375,7 +377,8 @@ struct LabelLayer: View {
             let width = sizes.map(\.width).max() ?? 0
             let origin = label.kind == .city ? CGPoint(x: q.x + 5, y: q.y - height / 2) : CGPoint(x: q.x - width / 2, y: q.y - height / 2)
             let frame = CGRect(origin: origin, size: CGSize(width: width, height: height)).insetBy(dx: -2, dy: -1)
-            if placed.contains(where: { $0.intersects(frame) }) { continue }
+            // Whole labels only: none cut by the edge of the view.
+            guard bounds.contains(frame), !placed.contains(where: { $0.intersects(frame) }) else { continue }
             placed.append(frame)
             var y = origin.y
             for (text, size) in zip(resolved, sizes) {

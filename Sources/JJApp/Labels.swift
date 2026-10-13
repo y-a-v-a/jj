@@ -63,16 +63,16 @@ enum LabelPlacer {
         }
 
         if data.body.has(.features), let features = try? data.features() {
-            // The largest named features: maria, basins, great craters.
+            // Named features, largest first; smaller ones appear as the map is zoomed.
             let typicalKm = typical * data.body.radius
-            for feature in features.features.prefix(70) {
+            for feature in features.features.prefix(400) {
                 labels.append(MapLabel(id: labels.count, kind: .region, position: state.projection.project(feature.location),
                                        text: feature.name, room: max(feature.diameter / typicalKm, 1) * typical * 0.5, timeZone: nil))
             }
         }
 
         if layers.contains(.cities), data.body.has(.places), let places = try? data.places() {
-            for place in places.places.prefix(80) {
+            for place in places.places.prefix(300) {
                 labels.append(MapLabel(id: labels.count, kind: .city, position: state.projection.project(place.location),
                                        text: place.name, room: typical * max(0.6, 2.4 - 0.25 * Double(place.rank)), timeZone: nil))
             }
