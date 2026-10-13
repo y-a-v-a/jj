@@ -119,7 +119,8 @@ gaps), a relief tint, and the fields every rocky world shares.
 - Six palettes, each with a light and a dark variant: **Van Wijk 2008**
   (the yellow land and blue sea of the paper), **Atlas**, **Blueprint**,
   **Midnight**, **Ink** and **Terra**.
-- Export to 4K or 8K PNG, an unfolding GIF or **4K film** (HEVC: the globe
+- Export to 4K or 8K PNG, a **poster** PDF (A3 to A0, at 300 dpi, with
+  title and credits), an unfolding GIF or **4K film** (HEVC: the globe
   turns into place, opens, and the map holds still, every frame framed
   around the map as it stands), the clipboard, or a **paper globe** to
   print, cut out and fold (below).
@@ -199,6 +200,7 @@ swift build -c release --product jj
 .build/release/jj animate -l tectonic --width 3840 -o plates.mov
 .build/release/jj animate -l geo-coastline --close -o figure13.mov
 .build/release/jj render -l geo-northUp -m geodesic:24 --close 1 -o closed.png
+.build/release/jj poster -l tectonic --paper a1 -o plates.pdf
 .build/release/jj paper -l platonic --diameter 10 -o icosahedron.pdf
 .build/release/jj paper -l coastline --detail fine --paper a3 -o coastlines.pdf
 .build/release/jj gallery --palette midnight --dark --sheet sheet.jpg
@@ -269,7 +271,7 @@ swift build -c release --product jj
 
 ## Checked against the paper
 
-The tests (`swift test`; 120 Swift Testing tests, over 200 cases with their
+The tests (`swift test`; 121 Swift Testing tests, over 200 cases with their
 arguments) check the geometry,
 the data and each layout's theme, and render maps with Metal to look at
 the pixels:

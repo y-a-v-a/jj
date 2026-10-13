@@ -315,6 +315,11 @@ struct ExportMenu: View {
             Button("Unfolding Animation (GIF)…") { exportGIF() }
             Button("Unfolding Film (4K)…") { exportFilm() }
             Divider()
+            Menu("Poster (PDF)") {
+                ForEach(Poster.Paper.allCases, id: \.self) { paper in
+                    Button("\(paper.title)…") { exportPoster(paper) }
+                }
+            }
             Button("Paper Globe (PDF)…") { model.isShowingPaper = true }
             Divider()
             Button("Copy Image") { copy() }
@@ -407,6 +412,20 @@ struct ExportMenu: View {
             var frames = try jobs.map { try Self.render($0, width: 900, renderer: renderer) }
             if let last = frames.last { frames += Array(repeating: last, count: 24) }
             try MapExport.gif(frames, delay: 1.0 / 25).write(to: url)
+        }
+    }
+
+    /// The map as shown (palette, appearance, closed gaps) on one large sheet.
+    @MainActor private func exportPoster(_ paper: Poster.Paper) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(model.layoutID)-poster-\(paper.rawValue).pdf"
+        guard panel.runModal() == .OK, let url = panel.url, let job = job(width: 1000) else { return }
+        let title = model.descriptor.title, subtitle = model.descriptor.summary
+        run {
+            try Poster.make(job.state, paper: paper, renderer: try MapRenderer(), settings: job.settings,
+                            title: title, subtitle: subtitle).write(to: url)
+            DispatchQueue.main.async { NSWorkspace.shared.open(url) }
         }
     }
 

@@ -47,7 +47,7 @@ struct HelpView: View {
             Item(keys: "⌥⌘T  ⌥⌘B", action: "Tissot's indicatrices, labels"),
         ]),
         Group(title: "Keeping it", symbol: "square.and.arrow.up", items: [
-            Item(keys: "Export", action: "PNG up to 8K, an unfolding GIF or 4K film, the clipboard"),
+            Item(keys: "Export", action: "PNG up to 8K, a poster PDF up to A0, an unfolding GIF or 4K film, the clipboard"),
             Item(keys: "⌘P", action: "Print a paper globe to cut out, fold and glue"),
         ]),
     ]

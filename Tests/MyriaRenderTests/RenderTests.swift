@@ -182,6 +182,30 @@ struct RenderTests {
         #expect(abs(share - 0.292) < 0.03, "land share on paper \(share)")
     }
 
+    /// A poster: one sheet, turned to suit the map, with the map on it.
+    @Test func postersPrintTheMap() throws {
+        let state = try Visual.build("graticular-cylindrical")
+        var settings = MapExport.settings(for: state, palette: .vanWijk, dark: false, width: 1000, height: 1000, date: Visual.date)
+        settings.layers = [.land]
+        let pdf: Data
+        do {
+            Visual.lock.lock()
+            defer { Visual.lock.unlock() }
+            pdf = try Poster.make(state, paper: .a3, renderer: Visual.renderer, settings: settings, title: "Cylindrical",
+                                  subtitle: "Meridian strips", dpi: 100)
+        }
+        let document = try #require(CGDataProvider(data: pdf as CFData).flatMap(CGPDFDocument.init))
+        #expect(document.numberOfPages == 1)
+        // The cylindrical map is wide: the A3 sheet lies on its side.
+        let box = try #require(document.page(at: 1)).getBoxRect(.mediaBox)
+        #expect(abs(box.width - 420 * 72 / 25.4) < 0.5 && abs(box.height - 297 * 72 / 25.4) < 0.5)
+        let page = Pixels(try #require(PaperGlobe.page(pdf, index: 0, width: 1200)))
+        try Visual.save(page, "poster")
+        let land = Palette.vanWijk.light.land
+        let landPixels = page.count { abs($0.0 - Int(land.r * 255)) < 40 && abs($0.1 - Int(land.g * 255)) < 40 && abs($0.2 - Int(land.b * 255)) < 40 }
+        #expect(Double(landPixels) / Double(page.width * page.height) > 0.05)
+    }
+
     /// Closed, the map is the globe: a disc filling π/4 of its bounding square.
     @Test func foldsIntoAGlobe() throws {
         let state = try Visual.build("geo-continents")

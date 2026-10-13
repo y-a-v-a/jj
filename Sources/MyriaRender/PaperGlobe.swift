@@ -100,13 +100,20 @@ public enum PaperGlobe {
 
     /// The unfolded map rendered in square tiles over the faces, in map
     /// units, kept as JPEG so the PDF stays small.
-    static func imagery(_ state: MapState, net: PaperNet, renderer: MapRenderer, settings base: FrameSettings,
-                        dpi requested: Double) throws -> [Tile] {
+    static func imagery(_ state: MapState, net: PaperNet, renderer: MapRenderer, settings: FrameSettings,
+                        dpi: Double) throws -> [Tile] {
+        try imagery(state, polygons: net.polygons, bounds: state.projection.bounds, millimetresPerUnit: net.options.scale,
+                    renderer: renderer, settings: settings, dpi: dpi)
+    }
+
+    /// The flat map rendered in square tiles over the given faces (map
+    /// units, `millimetresPerUnit` on paper), kept as JPEG.
+    static func imagery(_ state: MapState, polygons: [[Vec2]], bounds: Rect2, millimetresPerUnit: Double,
+                        renderer: MapRenderer, settings base: FrameSettings, dpi requested: Double) throws -> [Tile] {
         let size = 2048
-        let bounds = state.projection.bounds
-        let boxes = net.polygons.map { Rect2(bounding: $0) }
+        let boxes = polygons.map { Rect2(bounding: $0) }
         func plan(_ dpi: Double) -> [Rect2] {
-            let unit = Double(size) / (net.options.scale / 25.4 * dpi)
+            let unit = Double(size) / (millimetresPerUnit / 25.4 * dpi)
             let cols = Int((bounds.width / unit).rounded(.up)), rows = Int((bounds.height / unit).rounded(.up))
             var rects: [Rect2] = []
             for row in 0..<max(rows, 1) {
@@ -137,7 +144,7 @@ public enum PaperGlobe {
         settings.lineScale = max(1, dpi / 160)
         // Tiles overlap by a few pixels, so no hairline shows where they meet.
         let pad = 4
-        let padUnits = Double(pad) / (net.options.scale / 25.4 * dpi)
+        let padUnits = Double(pad) / (millimetresPerUnit / 25.4 * dpi)
         return try rects.map { r in
             let padded = Rect2(minX: r.minX - padUnits, minY: r.minY - padUnits, maxX: r.maxX + padUnits, maxY: r.maxY + padUnits)
             let side = size + 2 * pad

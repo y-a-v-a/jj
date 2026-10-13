@@ -14,7 +14,7 @@ struct JJCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "jj",
         abstract: "Myriahedral maps of the Earth, after Jarke J. van Wijk (2008).",
-        subcommands: [Layouts.self, Render.self, Paper.self, Stats.self, Gallery.self, Animate.self, Icon.self, Probe.self])
+        subcommands: [Layouts.self, Render.self, PosterCommand.self, Paper.self, Stats.self, Gallery.self, Animate.self, Icon.self, Probe.self])
 }
 
 /// Options shared by the commands that build a map.
@@ -70,6 +70,46 @@ struct MapOptions: ParsableArguments {
             return k
         } ?? defaultMesh(layout.descriptor) ?? layout.descriptor.preferredMesh
         return try engine.build(layout, parameters: adjust(parameters, layout.descriptor), mesh: MeshSpec(kind))
+    }
+}
+
+struct PosterCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "poster", abstract: "Print the flat map on one large sheet (PDF).")
+
+    @OptionGroup var map: MapOptions
+
+    @Option(name: .shortAndLong, help: "Output PDF file.")
+    var output = "poster.pdf"
+
+    @Option(help: "Paper: a3, a2, a1 or a0.")
+    var paper = "a2"
+
+    @Option(help: "Palette: \(Palette.all.map(\.id).joined(separator: ", ")).")
+    var palette = "vanwijk"
+
+    @Flag(help: "Use the palette's dark variant.")
+    var dark = false
+
+    @Option(help: "Close the gaps (van Wijk's figure 13): 0 open, 1 closed. Triangle meshes only.")
+    var close = 0.0
+
+    @Option(help: "Resolution of the map imagery.")
+    var dpi = 300.0
+
+    func run() throws {
+        guard let sheet = Poster.Paper(rawValue: paper) else { throw ValidationError("bad paper \(paper)") }
+        guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
+        let start = Date()
+        let state = try map.build(try map.engine())
+        if close > 0, state.closedGaps == nil { throw ValidationError("--close needs a mesh of triangles") }
+        var settings = MapExport.settings(for: state, palette: palette, dark: dark, width: 1000, height: 1000,
+                                          date: try map.resolvedDate())
+        settings.closing = close
+        let pdf = try Poster.make(state, paper: sheet, renderer: try MapRenderer(), settings: settings,
+                                  title: state.layout.title, subtitle: state.layout.summary, dpi: dpi)
+        try pdf.write(to: URL(fileURLWithPath: output))
+        print(String(format: "%@ on %@: %.1f MB in %.1f s → %@", state.layout.title, sheet.title,
+                     Double(pdf.count) / 1_048_576, Date().timeIntervalSince(start), output))
     }
 }
 
