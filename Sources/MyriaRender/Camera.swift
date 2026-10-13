@@ -90,12 +90,36 @@ public final class MapPoses: Sendable {
     let folding: Folding
     /// Root-local → globe coordinates.
     let rootToGlobe: Pose3
+    /// The farthest any face's corner lies from its origin.
+    let faceRadius: Double
 
     public init(projection: MyriahedralProjection) {
         self.projection = projection
         folding = Folding(projection: projection)
         let frame = projection.mesh.frames[projection.unfolding.root]
         rootToGlobe = Pose3(rotation: Mat3(frame.xAxis, frame.yAxis, frame.normal), translation: frame.origin)
+        faceRadius = projection.mesh.frames.reduce(0) { r, f in f.localVertices.reduce(r) { max($0, $1.length) } }
+    }
+
+    /// Where the map lies in the view plane (x, y) at `unfold`: every posed
+    /// corner, or for fine meshes the posed face origins widened by the
+    /// largest face.
+    public func bounds(unfold t: Double, globe: Mat3) -> Rect2 {
+        if t >= 1 { return projection.bounds }
+        var b = Rect2.empty
+        let poses = poses(unfold: max(t, 0), globe: globe)
+        if poses.count <= 20_000 {
+            let frames = projection.mesh.frames
+            for (f, pose) in poses.enumerated() {
+                for v in frames[f].localVertices {
+                    let p = pose.apply(v)
+                    b.include(Vec2(p.x, p.y))
+                }
+            }
+            return b
+        }
+        for pose in poses { b.include(Vec2(pose.translation.x, pose.translation.y)) }
+        return Rect2(minX: b.minX - faceRadius, minY: b.minY - faceRadius, maxX: b.maxX + faceRadius, maxY: b.maxY + faceRadius)
     }
 
     /// The flat map: every face's 2D transform as a 3D pose.
@@ -219,6 +243,17 @@ public struct Viewport: Hashable, Sendable {
         let tx = Float(-center.x) * sx, ty = Float(-center.y) * sy - Float((insetTop - insetBottom) / size.y)
         let sz = Float(-0.5 / depth)
         return simd_float4x4(columns: (SIMD4(sx, 0, 0, 0), SIMD4(0, sy, 0, 0), SIMD4(0, 0, sz, 0), SIMD4(tx, ty, 0.5, 1)))
+    }
+
+    /// A viewport around a map as it stands at `unfold`, so that no stage of
+    /// the fold loses part of it, whatever the shapes of map and view. The
+    /// closed globe keeps `halo` map units of room around it.
+    public static func around(_ state: MapState, unfold: Double, globe: Mat3, size: Vec2, margin: Double = 16,
+                              insetTop: Double = 0, insetBottom: Double = 0, halo: Double = 0.12) -> Viewport {
+        let b = state.poses.bounds(unfold: unfold, globe: globe)
+        let pad = halo * (1 - min(max(unfold, 0), 1))
+        return Viewport(bounds: Rect2(minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad),
+                        size: size, margin: margin, insetTop: insetTop, insetBottom: insetBottom)
     }
 
     /// Blends two viewports (globe view and map view) for fold animations:

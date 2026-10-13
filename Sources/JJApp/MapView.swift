@@ -39,6 +39,12 @@ enum MapGeometry {
     static func viewport(_ model: AppModel, size: CGSize, unfold: Double) -> Viewport? {
         guard var map = mapViewport(model, size: size) else { return nil }
         guard unfold < 1 else { return map }
+        // Showing the whole map, frame the map as it stands: halfway open,
+        // it may reach well beyond both the globe and the flat map.
+        let whole = model.transition.map { $0.phase == .unfolding || $0.startCamera == MapCamera() } ?? (model.camera == MapCamera())
+        if whole, unfold > 0, let state = model.state {
+            return fitted(state, unfold: unfold, globe: model.globe, map: map)
+        }
         guard let t = model.transition else {
             let globe = Viewport(bounds: globeBounds, size: map.size, zoom: min(model.camera.zoom, 4),
                                  insetTop: map.insetTop, insetBottom: map.insetBottom)
@@ -51,6 +57,21 @@ enum MapGeometry {
         map.zoom = camera.zoom
         map.center = camera.center ?? map.bounds.center
         return Viewport.blend(globe, map, unfold)
+    }
+
+    /// The last fitted viewport: views and overlays ask for it several
+    /// times a frame.
+    private static var lastFit: (state: UUID, unfold: Double, globe: Mat3, size: Vec2, insets: Vec2, viewport: Viewport)?
+
+    static func fitted(_ state: MapState, unfold: Double, globe: Mat3, map: Viewport) -> Viewport {
+        let insets = Vec2(map.insetTop, map.insetBottom)
+        if let f = lastFit, f.state == state.id, f.unfold == unfold, f.globe == globe, f.size == map.size, f.insets == insets {
+            return f.viewport
+        }
+        let v = Viewport.around(state, unfold: unfold, globe: globe, size: map.size, margin: map.margin,
+                                insetTop: map.insetTop, insetBottom: map.insetBottom, halo: globeBounds.maxX - 1)
+        lastFit = (state.id, unfold, globe, map.size, insets, v)
+        return v
     }
 }
 

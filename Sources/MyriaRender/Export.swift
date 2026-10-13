@@ -26,18 +26,7 @@ public enum MapExport {
     public static func fittedViewport(for state: MapState, width: Double, height: Double, unfold: Double, globe: Mat3,
                                       margin: Double = 16) -> Viewport {
         guard unfold > 0, unfold < 1 else { return viewport(for: state, width: width, height: height, unfold: unfold, margin: margin) }
-        let frames = state.mesh.frames
-        var b = Rect2.empty
-        for (f, pose) in state.poses.poses(unfold: unfold, globe: globe).enumerated() {
-            for v in frames[f].localVertices {
-                let p = pose.apply(v)
-                b.include(Vec2(p.x, p.y))
-            }
-        }
-        // The globe's room for its halo, given up as it opens.
-        let pad = 0.15 * (1 - unfold)
-        b = Rect2(minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad)
-        return Viewport(bounds: b, size: Vec2(width, height), margin: margin)
+        return Viewport.around(state, unfold: unfold, globe: globe, size: Vec2(width, height), margin: margin, halo: 0.15)
     }
 
     /// The height that suits a map `width` wide.
