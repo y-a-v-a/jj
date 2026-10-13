@@ -139,6 +139,11 @@ the app (or with `jj animate --close`).
 
 ![North Up South Down and The Coastline of the Earth, open and with the gaps closed](docs/closed-gaps.jpg)
 
+Day and Night, closed: the day side and the night side become two
+round, continuous hemispheres, held together by the hinge at dusk.
+
+![Day and Night with its gaps closed](docs/day-night-closed.jpg)
+
 ## Paper globes
 
 A myriahedral map is a polyhedron cut open, so it can be closed again by
