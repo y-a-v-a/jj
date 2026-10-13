@@ -109,6 +109,8 @@ public struct FrameSettings: Sendable {
     public var sealSlits: Bool
     /// A soft glow around the globe while folded.
     public var atmosphere = true
+    /// Points to mark in map coordinates, each with a pulse phase 0…1.
+    public var markers: [(point: Vec2, phase: Double)] = []
 
     public init(style: PaletteStyle, coloring: LayoutAppearance.Coloring, layers: Set<LayerID>, date: Date = Date(),
                 unfold: Double = 1, globe: Mat3 = .identity, viewport: Viewport, pixelScale: Double = 1,

@@ -25,6 +25,22 @@ struct ContentView: View {
                         .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
                 }
                 .toolbar { toolbar }
+                .searchable(text: $model.searchText, placement: .toolbar, prompt: "Find a place")
+                .searchSuggestions {
+                    ForEach(model.searchResults) { place in
+                        Button {
+                            model.reveal(place)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(place.title)
+                                Text(place.subtitle).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .onSubmit(of: .search) {
+                    if let first = model.searchResults.first { model.reveal(first) }
+                }
         }
         .onAppear {
             model.isDark = colorScheme == .dark

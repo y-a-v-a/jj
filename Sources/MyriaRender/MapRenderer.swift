@@ -738,6 +738,21 @@ public final class MapRenderer {
         // Points.
         encoder.setRenderPipelineState(pipelines.point)
         encoder.setVertexBuffer(poseBuffer, offset: 0, index: 1)
+        if !s.markers.isEmpty, !folded {
+            // A found place: a dot with a ring that pulses outwards.
+            for marker in s.markers {
+                let face = UInt32(state.mesh.faceCount)
+                let ring = Float(6 + 22 * marker.phase) * px
+                var points = [PointInstance(local: SIMD2(Float(marker.point.x), Float(marker.point.y)), face: face, style: 0, radius: ring),
+                              PointInstance(local: SIMD2(Float(marker.point.x), Float(marker.point.y)), face: face, style: 1, radius: 4 * px)]
+                var styles = [LineStyleGPU(color: style.highlight.withAlpha(0.55 * (1 - marker.phase)).simd, width: 0, glow: 4 * px),
+                              LineStyleGPU(color: style.cut.simd, width: 0, glow: 2 * px)]
+                encoder.setVertexBytes(&points, length: points.count * MemoryLayout<PointInstance>.stride, index: 0)
+                encoder.setVertexBytes(&styles, length: styles.count * MemoryLayout<LineStyleGPU>.stride, index: 2)
+                encoder.setVertexBytes(&view, length: MemoryLayout<ViewUniforms>.stride, index: 3)
+                encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: points.count)
+            }
+        }
         if s.layers.contains(.cities), points["cities"] != nil || available(.cities(limit: 600), state) {
             let cities = pointArray("cities") {
                 let overlay = try state.overlays.cities()

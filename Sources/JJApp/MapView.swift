@@ -18,7 +18,7 @@ struct MapView: NSViewRepresentable {
         // Read everything a frame depends on, so SwiftUI redraws on change.
         _ = (model.state, model.paletteID, model.isDark, model.coloring, model.layers, model.unfold, model.globe,
              model.camera, model.selectedGroup, model.date, model.sealSlits, model.lineWeight, model.graticuleStep,
-             model.transition?.phase, model.foldAnimation?.start)
+             model.transition?.phase, model.foldAnimation?.start, model.searchText)
         view.redraw()
     }
 }
@@ -93,7 +93,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
 
     func redraw() {
         needsDisplay = true
-        if model.isAnimating || particles.isActive { isPaused = false }
+        if model.isAnimating || particles.isActive || model.isMarking { isPaused = false }
     }
 
     // MARK: Drawing
@@ -118,6 +118,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
             lineScale: model.lineWeight, graticuleStep: model.graticuleStep,
             highlightGroups: model.selectedGroup.map { [$0] } ?? [], mapLines: particles.lines,
             sealSlits: model.sealSlits && state.appearance.sealSlits)
+        settings.markers = model.markers(at: CACurrentMediaTime())
         if case .groups = settings.coloring { settings.highlightGroups = [] }
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         renderer.encode(state, settings: settings, into: encoder, drawableSize: drawableSize)
@@ -125,7 +126,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         simulateHoverOnce(unfold: unfold)
         buffer.present(drawable)
         buffer.commit()
-        isPaused = !(model.isAnimating || particles.isActive)
+        isPaused = !(model.isAnimating || particles.isActive || model.isMarking)
     }
 
     private var simulatedHover = false

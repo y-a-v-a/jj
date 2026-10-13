@@ -320,6 +320,7 @@ final class AppModel {
 
     private var launchUnfold: Double?
     private var launchZoom: Double?
+    private var didLaunchFind = false
 
     /// Starts or stops the tour of all layouts.
     func toggleTour() {
@@ -480,6 +481,15 @@ final class AppModel {
             launchZoom = nil
             camera.zoom = z
         }
+        // -find Amsterdam: show where a place went once the map has opened.
+        if let query = UserDefaults.standard.string(forKey: "find"), !didLaunchFind {
+            didLaunchFind = true
+            Task {
+                try? await Task.sleep(for: .seconds(3.2))
+                searchText = query
+                if let place = searchResults.first { reveal(place) }
+            }
+        }
     }
 
     static func describe(_ s: MapState) -> String {
@@ -595,6 +605,85 @@ final class AppModel {
         guard let i = catalog.firstIndex(where: { $0.descriptor.id == layoutID }) else { return }
         layoutID = catalog[(i + step + catalog.count) % catalog.count].descriptor.id
     }
+
+    // MARK: Search
+
+    struct Place: Identifiable, Hashable {
+        var id: String { "\(kind):\(title):\(subtitle)" }
+        let kind: String
+        let title: String
+        let subtitle: String
+        let location: GeoPoint
+    }
+
+    var searchText = ""
+    /// The place found last, and when, for the marker's pulse.
+    @ObservationIgnored private(set) var found: (location: GeoPoint, time: CFTimeInterval)?
+
+    /// Places matching the search text: cities, countries and oceans, or a
+    /// world's named features.
+    var searchResults: [Place] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard query.count >= 2 else { return [] }
+        let data = BodyData.of(body)
+        var results: [Place] = []
+        func matches(_ name: String) -> Bool { name.lowercased().hasPrefix(query) || name.lowercased().contains(" " + query) }
+        if body.has(.countries), let countries = try? data.regions(.countries) {
+            for c in countries.regions where matches(c.name) {
+                if let label = c.labelPoint { results.append(Place(kind: "country", title: c.name, subtitle: "Country", location: label)) }
+            }
+        }
+        if body.has(.places), let places = try? data.places() {
+            for p in places.places where matches(p.name) {
+                results.append(Place(kind: "city", title: p.name, subtitle: p.country, location: p.location))
+                if results.count > 24 { break }
+            }
+        }
+        if body.has(.land) {
+            for basin in OceanBasin.allCases where matches(basin.title) {
+                let point: GeoPoint = switch basin {
+                case .atlantic: GeoPoint(latitude: 20, longitude: -40)
+                case .pacific: GeoPoint(latitude: 0, longitude: -150)
+                case .indian: GeoPoint(latitude: -20, longitude: 80)
+                case .southern: GeoPoint(latitude: -65, longitude: 0)
+                case .arctic: GeoPoint(latitude: 85, longitude: 0)
+                }
+                results.append(Place(kind: "ocean", title: basin.title, subtitle: "Ocean", location: point))
+            }
+        }
+        if body.has(.features), let features = try? data.features() {
+            for f in features.features where matches(f.name) {
+                results.append(Place(kind: "feature", title: f.name, subtitle: "\(f.type), \(Int(f.diameter)) km", location: f.location))
+                if results.count > 24 { break }
+            }
+        }
+        return Array(results.prefix(12))
+    }
+
+    /// Shows where a place ended up: on the flat map the camera flies there,
+    /// on the globe the globe turns to face it.
+    func reveal(_ place: Place) {
+        guard let state else { return }
+        found = (place.location, CACurrentMediaTime())
+        if liveUnfold < 1 {
+            // Turn the globe so the place faces the viewer, north up.
+            let p = place.location.unitVector
+            let (east, north) = Spherical.tangentFrame(at: p)
+            globe = Mat3(Vec3(east.x, north.x, p.x), Vec3(east.y, north.y, p.y), Vec3(east.z, north.z, p.z))
+        } else {
+            camera = MapCamera(zoom: max(camera.zoom, 5), center: state.projection.project(place.location))
+        }
+        searchText = ""
+    }
+
+    /// The marker of the place found last, while it pulses (four seconds).
+    func markers(at time: CFTimeInterval) -> [(point: Vec2, phase: Double)] {
+        guard let found, let state, time - found.time < 4 else { return [] }
+        let phase = ((time - found.time) / 1.0).truncatingRemainder(dividingBy: 1)
+        return [(state.projection.project(found.location), phase)]
+    }
+
+    var isMarking: Bool { found.map { CACurrentMediaTime() - $0.time < 4 } ?? false }
 
     // MARK: Hover
 

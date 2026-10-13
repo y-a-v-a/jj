@@ -86,11 +86,16 @@ shoreline of the ocean that may once have been there.
   Day and Night map re-cuts continuously and the timezone clocks race.
 - Zoom with **⌘-scroll**, pinch, double-click or the **− = +** controls
   (⌘−, ⌘0, ⌘+); pan by dragging or scrolling; spin the globe when folded.
+- **Find a place** (⌘F): where did Amsterdam go? The camera flies to wherever
+  the unfolding put it and a marker pulses there; on the closed globe the
+  globe turns to face it. Cities, countries and oceans on Earth; craters,
+  maria and mountains on the Moon and Mars.
 - Hover cards with whatever is under the pointer (country, clock, plate,
   height, rainfall, wind, the nearest city or crater); click to outline a
   piece; option-click (or the context menu) to recentre a layout on a place.
 - An inspector generated from each layout's parameters, the mesh
-  (graticules from 10° to 0.5°, geodesic spheres up to 327 680 triangles),
+  (graticules from 10° to 0.5°, geodesic spheres up to 327 680 triangles,
+  hexagons: the dual of the geodesic sphere, up to 163 842 cells),
   any colouring (relief, any field, regions, the pieces of the cut), layers
   (coastlines, rivers, borders, plates, graticule, cities, air routes, night
   with civil, nautical and astronomical twilight, wind, cut edges, faces,
