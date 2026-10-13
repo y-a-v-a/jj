@@ -13,6 +13,7 @@ struct GalleryView: View {
     @Bindable var model: AppModel
 
     var body: some View {
+        ScrollViewReader { proxy in
         List(selection: Binding(get: { model.layoutID }, set: { if let id = $0 { model.layoutID = id } })) {
             Picker("World", selection: $model.bodyID) {
                 ForEach(CelestialBody.all) { world in
@@ -31,12 +32,18 @@ struct GalleryView: View {
                             GalleryRow(descriptor: layout.descriptor(for: model.body), thumbnail: model.thumbnails[layout.descriptor.id],
                                        background: model.style.background)
                                 .tag(layout.descriptor.id)
+                                .id(layout.descriptor.id)
                         }
                     }
                 }
             }
         }
         .listStyle(.sidebar)
+        // The tour, the menus and the keyboard keep the chosen layout in view.
+        .onChange(of: model.layoutID) {
+            withAnimation(.easeInOut(duration: 0.4)) { proxy.scrollTo(model.layoutID, anchor: .center) }
+        }
+        }
     }
 }
 
