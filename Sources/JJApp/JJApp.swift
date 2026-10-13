@@ -39,6 +39,9 @@ struct JJApp: App {
                 Divider()
                 Button(model.unfold >= 1 ? "Fold into a Globe" : "Unfold the Map") { model.toggleFold() }
                     .keyboardShortcut("g", modifiers: .command)
+                Toggle("Close the Gaps", isOn: Binding(get: { model.gapsClosed }, set: { model.setGapsClosed($0) }))
+                    .keyboardShortcut("g", modifiers: [.command, .option])
+                    .disabled(!model.canCloseGaps || model.unfold < 1)
                 Divider()
                 Toggle("Cut Edges", isOn: model.layerBinding(.cuts)).keyboardShortcut("k", modifiers: [.command, .option])
                 Toggle("Faces", isOn: model.layerBinding(.mesh)).keyboardShortcut("f", modifiers: [.command, .option])
