@@ -154,28 +154,39 @@ public struct Viewport: Hashable, Sendable {
     /// Map point shown at the view's centre.
     public var center: Vec2
     public var margin: Double
+    /// Extra room kept free at the top and bottom of the view (toolbars,
+    /// controls); the map is fitted and centred between them.
+    public var insetTop: Double
+    public var insetBottom: Double
     public static let maximumZoom = 1500.0
 
-    public init(bounds: Rect2, size: Vec2, zoom: Double = 1, center: Vec2? = nil, margin: Double = 16) {
+    public init(bounds: Rect2, size: Vec2, zoom: Double = 1, center: Vec2? = nil, margin: Double = 16,
+                insetTop: Double = 0, insetBottom: Double = 0) {
         self.bounds = bounds
         self.size = size
         self.zoom = zoom
         self.center = center ?? bounds.center
         self.margin = margin
+        self.insetTop = insetTop
+        self.insetBottom = insetBottom
     }
 
     /// View points per map unit.
     public var scale: Double {
-        let fit = min((size.x - 2 * margin) / max(bounds.width, 1e-12), (size.y - 2 * margin) / max(bounds.height, 1e-12))
+        let fit = min((size.x - 2 * margin) / max(bounds.width, 1e-12),
+                      (size.y - 2 * margin - insetTop - insetBottom) / max(bounds.height, 1e-12))
         return max(fit, 1e-9) * zoom
     }
 
+    /// Where the map's centre sits in the view, between the insets.
+    var middleY: Double { (size.y + insetTop - insetBottom) / 2 }
+
     public func toView(_ p: Vec2) -> Vec2 {
-        Vec2(size.x / 2 + (p.x - center.x) * scale, size.y / 2 - (p.y - center.y) * scale)
+        Vec2(size.x / 2 + (p.x - center.x) * scale, middleY - (p.y - center.y) * scale)
     }
 
     public func toMap(_ q: Vec2) -> Vec2 {
-        Vec2(center.x + (q.x - size.x / 2) / scale, center.y - (q.y - size.y / 2) / scale)
+        Vec2(center.x + (q.x - size.x / 2) / scale, center.y - (q.y - middleY) / scale)
     }
 
     /// Zooms by `factor`, keeping the map point under `anchor` (view
@@ -204,7 +215,8 @@ public struct Viewport: Hashable, Sendable {
     public func matrix(depth: Double = 4) -> simd_float4x4 {
         let s = scale
         let sx = Float(2 * s / size.x), sy = Float(2 * s / size.y)
-        let tx = Float(-center.x) * sx, ty = Float(-center.y) * sy
+        // The view's middle row sits (insetTop − insetBottom) / 2 below centre.
+        let tx = Float(-center.x) * sx, ty = Float(-center.y) * sy - Float((insetTop - insetBottom) / size.y)
         let sz = Float(-0.5 / depth)
         return simd_float4x4(columns: (SIMD4(sx, 0, 0, 0), SIMD4(0, sy, 0, 0), SIMD4(0, 0, sz, 0), SIMD4(tx, ty, 0.5, 1)))
     }
@@ -213,6 +225,8 @@ public struct Viewport: Hashable, Sendable {
     /// centre linearly, scale geometrically.
     public static func blend(_ a: Viewport, _ b: Viewport, _ t: Double) -> Viewport {
         var v = b
+        v.insetTop = a.insetTop + (b.insetTop - a.insetTop) * t
+        v.insetBottom = a.insetBottom + (b.insetBottom - a.insetBottom) * t
         let scale = exp(log(a.scale) * (1 - t) + log(b.scale) * t)
         v.center = Vec2.lerp(a.center, b.center, t)
         v.zoom = scale / max(b.scale / b.zoom, 1e-12)

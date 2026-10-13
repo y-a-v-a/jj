@@ -84,7 +84,7 @@ public struct MapLine: Sendable {
 }
 
 /// Everything that decides how one frame looks.
-public struct FrameSettings {
+public struct FrameSettings: Sendable {
     public var style: PaletteStyle
     public var coloring: LayoutAppearance.Coloring
     public var layers: Set<LayerID>

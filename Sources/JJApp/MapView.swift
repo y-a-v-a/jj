@@ -32,18 +32,25 @@ enum MapGeometry {
     static func mapViewport(_ model: AppModel, size: CGSize) -> Viewport? {
         guard let state = model.state else { return nil }
         return Viewport(bounds: state.projection.bounds, size: Vec2(size.width, size.height), zoom: model.camera.zoom,
-                        center: model.camera.center)
+                        center: model.camera.center, insetTop: model.viewInsets.top, insetBottom: model.viewInsets.bottom)
     }
 
     /// The camera for the current fold.
     static func viewport(_ model: AppModel, size: CGSize, unfold: Double) -> Viewport? {
-        guard let map = mapViewport(model, size: size) else { return nil }
+        guard var map = mapViewport(model, size: size) else { return nil }
         guard unfold < 1 else { return map }
-        let globe = Viewport(bounds: globeBounds, size: map.size, zoom: min(model.camera.zoom, 4))
-        var reset = map
-        // While a transition unfolds, it heads for the whole map.
-        if model.transition != nil { reset.zoom = 1; reset.center = reset.bounds.center }
-        return Viewport.blend(globe, reset, unfold)
+        guard let t = model.transition else {
+            let globe = Viewport(bounds: globeBounds, size: map.size, zoom: min(model.camera.zoom, 4),
+                                 insetTop: map.insetTop, insetBottom: map.insetBottom)
+            return Viewport.blend(globe, map, unfold)
+        }
+        // A transition passes through the whole globe; it closes from the
+        // camera it started with and opens onto the whole new map.
+        let globe = Viewport(bounds: globeBounds, size: map.size, zoom: 1, insetTop: map.insetTop, insetBottom: map.insetBottom)
+        let camera = t.phase == .unfolding ? MapCamera() : t.startCamera
+        map.zoom = camera.zoom
+        map.center = camera.center ?? map.bounds.center
+        return Viewport.blend(globe, map, unfold)
     }
 }
 
@@ -72,6 +79,11 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         delegate = self
         let options: NSTrackingArea.Options = [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
         addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self))
+        // Never clip overlays on the main thread: draw without them until ready.
+        renderer?.buildsAsynchronously = true
+        renderer?.onResourceReady = { [weak self] in
+            Task { @MainActor in self?.redraw() }
+        }
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -143,7 +155,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         return NSPoint(x: p.x, y: bounds.height - p.y)
     }
 
-    private var flat: Bool { model.unfold >= 1 && model.transition == nil }
+    private var flat: Bool { model.liveUnfold >= 1 && model.transition == nil }
 
     /// Two points of slack in map units, so hairline slits don't interrupt hovering and clicking.
     private var pixelSlack: Double {
@@ -154,17 +166,29 @@ final class MapMTKView: MTKView, MTKViewDelegate {
         MapGeometry.mapViewport(model, size: bounds.size)?.toMap(Vec2(p.x, p.y))
     }
 
-    /// The globe point under a view point while closed.
+    /// The globe point under a view point while closed: the view ray meets
+    /// the face's plane (the faces lie inside the unit sphere).
     private func globePoint(_ p: NSPoint) -> Vec3? {
-        guard model.unfold <= 0.001, let v = MapGeometry.viewport(model, size: bounds.size, unfold: 0) else { return nil }
+        guard model.liveUnfold <= 0.001, let state = model.state,
+              let v = MapGeometry.viewport(model, size: bounds.size, unfold: 0) else { return nil }
         let q = v.toMap(Vec2(p.x, p.y))
         let r2 = q.x * q.x + q.y * q.y
         guard r2 < 1 else { return nil }
-        let world = Vec3(q.x, q.y, (1 - r2).squareRoot())
         // World = globe rotation × globe coordinates.
         let g = model.globe
         let inverse = Mat3(Vec3(g.c0.x, g.c1.x, g.c2.x), Vec3(g.c0.y, g.c1.y, g.c2.y), Vec3(g.c0.z, g.c1.z, g.c2.z))
-        return inverse.apply(world)
+        var direction = inverse.apply(Vec3(q.x, q.y, (1 - r2).squareRoot()))
+        for _ in 0..<3 {
+            let f = state.mesh.face(containing: direction)
+            let frame = state.mesh.frames[f]
+            let n = g.apply(frame.normal)
+            guard n.z > 0.05 else { return nil }
+            let z = (frame.planeDistance - n.x * q.x - n.y * q.y) / n.z
+            let next = inverse.apply(Vec3(q.x, q.y, z)).normalized
+            if state.mesh.face(containing: next) == f { return next }
+            direction = next
+        }
+        return nil
     }
 
     // MARK: Zoom

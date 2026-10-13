@@ -112,6 +112,10 @@ struct MapArea: View {
             }
         }
         .background(Color(rgba: model.style.background))
+        .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { top in
+            // The map runs under the translucent toolbar but is fitted below it.
+            model.viewInsets = (top: top, bottom: 52)
+        }
     }
 }
 
@@ -230,9 +234,10 @@ struct Legend: View {
 
     private var content: AnyView? {
         let style = model.style
-        if case .field(let key) = model.coloring, let d = model.body.field(key.id),
-           let field = try? BodyData.of(model.body).field(key) {
-            let range = Self.range(key, field, d)
+        let data = BodyData.of(model.body)
+        if case .field(let key) = model.coloring, let d = model.body.field(key.id), data.isFieldLoaded(key),
+           let field = try? data.field(key) {
+            let range = MapRenderer.range(of: key, field: field, scale: d.scale, data: data)
             let colors = style.colormap(d.colormap).table(24).map { Color(rgba: $0) }
             return AnyView(VStack(alignment: .leading, spacing: 4) {
                 Text(d.title + (d.variants.first { $0.id == key.variant }.map { " · " + $0.title } ?? ""))
@@ -261,14 +266,6 @@ struct Legend: View {
             })
         }
         return nil
-    }
-
-    static func range(_ key: FieldKey, _ field: GridField, _ d: FieldDescriptor) -> (Double, Double) {
-        switch d.scale {
-        case .diverging: (field.quantile(0.02), field.quantile(0.995))
-        case .logarithmic: (0, field.quantile(0.995))
-        case .linear: (max(field.range.lowerBound, 0), field.quantile(0.99))
-        }
     }
 
     static func format(_ v: Double, _ d: FieldDescriptor) -> String {

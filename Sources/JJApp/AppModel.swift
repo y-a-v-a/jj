@@ -71,6 +71,8 @@ struct Transition {
     var start: CFTimeInterval
     var from: Double
     var duration: CFTimeInterval
+    /// The camera when the fold began, which the folding map keeps.
+    var startCamera = MapCamera()
 }
 
 @MainActor @Observable
@@ -169,11 +171,19 @@ final class AppModel {
 
     // MARK: View state
 
-    /// 0 is the globe, 1 the flat map (the value the slider shows).
-    var unfold: Double = 1
+    /// 0 is the globe, 1 the flat map: what the slider shows. During
+    /// animations it is published in steps, so views that only show it
+    /// don't redraw every frame; `liveUnfold` is the exact value drawn.
+    var unfold: Double = 1 {
+        didSet { if !animating { liveUnfold = unfold } }
+    }
+    @ObservationIgnored private(set) var liveUnfold: Double = 1
+    @ObservationIgnored private var animating = false
     /// Rotation of the globe while folded.
     var globe: Mat3 = .identity
     var camera = MapCamera()
+    /// Room the map keeps free at the top (toolbar) and bottom (controls).
+    var viewInsets = (top: 0.0, bottom: 0.0)
     var transition: Transition?
     /// A fold animation that is not a transition.
     var foldAnimation: Transition?
@@ -191,6 +201,8 @@ final class AppModel {
     private(set) var thumbnails: [String: NSImage] = [:]
     private var buildTask: Task<Void, Never>?
     private var buildGeneration = 0
+    /// One build at a time: newer requests wait and replace each other.
+    @ObservationIgnored private var buildInFlight = false
     private var clock: Timer?
     /// Cycling through the gallery, folding and unfolding between layouts.
     private(set) var isTouring = false
@@ -319,17 +331,27 @@ final class AppModel {
 
     /// Builds the map for the current choices off the main thread.
     /// - Parameter transition: fold the old map into a globe first and
-    ///   unfold the new one from it.
+    ///   unfold the new one from it. A rebuild during a transition joins it.
     func rebuild(transition: Bool = false) {
-        buildTask?.cancel()
         buildGeneration += 1
-        let generation = buildGeneration
-        let layout = self.layout, parameters = self.parameters, mesh = MeshSpec(meshKind), engine = self.engine
+        pending = nil
+        let sameWorld = state != nil && state?.data.body == body
+        if sameWorld && (transition || self.transition != nil) {
+            if self.transition == nil { beginTransition() }
+        } else if self.transition != nil {
+            // Another world: no shared globe to pass through.
+            self.transition = nil
+        }
         isBuilding = true
         status = "Cutting \(descriptor.title.lowercased())…"
         lastCutMinute = Int(date.timeIntervalSince1970 / 60)
-        let animate = transition && state != nil && state?.data.body == body
-        if animate { beginTransition() }
+        if !buildInFlight { startBuild() }
+    }
+
+    private func startBuild() {
+        buildInFlight = true
+        let generation = buildGeneration
+        let layout = self.layout, parameters = self.parameters, mesh = MeshSpec(meshKind), engine = self.engine
         let layers = defaultLayers(for: layout, parameters: parameters)
         let coloring = coloringOverride
         buildTask = Task {
@@ -342,21 +364,43 @@ final class AppModel {
                     return .failure(error)
                 }
             }.value
-            guard generation == buildGeneration, !Task.isCancelled else { return }
+            buildInFlight = false
+            // Something changed meanwhile: build the newest choice instead.
+            guard generation == buildGeneration else {
+                startBuild()
+                return
+            }
             isBuilding = false
             switch result {
             case .success(let new):
-                if animate {
-                    pending = new
-                    if self.transition?.phase == .waiting { swapInPending() }
-                } else {
-                    install(new, resetCamera: self.state?.context.spec != new.context.spec || self.state?.layout.id != new.layout.id
-                        || self.state?.data.body != new.data.body)
-                }
+                receive(new)
             case .failure(let error):
                 status = "Could not build the map: \(error)"
-                self.transition = nil
+                if self.transition != nil {
+                    // Open the old map again.
+                    self.transition = Transition(phase: .unfolding, start: CACurrentMediaTime(), from: 0, duration: Self.unfoldDuration)
+                }
             }
+        }
+    }
+
+    /// A finished build: installed now, or handed to the running transition.
+    private func receive(_ new: MapState) {
+        guard let t = transition else {
+            install(new, resetCamera: state?.context.spec != new.context.spec || state?.layout.id != new.layout.id
+                || state?.data.body != new.data.body)
+            return
+        }
+        pending = new
+        switch t.phase {
+        case .waiting:
+            swapInPending()
+        case .folding:
+            break  // swapped in once closed
+        case .unfolding:
+            // The map opening is already outdated: close it again.
+            transition = Transition(phase: .folding, start: CACurrentMediaTime(), from: liveUnfold,
+                                    duration: Self.foldDuration * max(liveUnfold, 0.25), startCamera: MapCamera())
         }
     }
 
@@ -392,6 +436,7 @@ final class AppModel {
     private func install(_ new: MapState, resetCamera: Bool) {
         let first = state == nil
         state = new
+        labels = []
         if resetCamera {
             camera = MapCamera()
             globe = Self.facingRoot(new)
@@ -402,6 +447,7 @@ final class AppModel {
             globe = Self.facingRoot(new)
             unfold = 0
             foldAnimation = Transition(phase: .unfolding, start: CACurrentMediaTime() + 0.35, from: 0, duration: 2.6)
+            animating = true
         }
         hover = nil
         status = Self.describe(new)
@@ -437,42 +483,57 @@ final class AppModel {
 
     private func beginTransition() {
         foldAnimation = nil
-        transition = Transition(phase: .folding, start: CACurrentMediaTime(), from: unfold,
-                                duration: Self.foldDuration * max(unfold, 0.25))
+        transition = Transition(phase: .folding, start: CACurrentMediaTime(), from: liveUnfold,
+                                duration: Self.foldDuration * max(liveUnfold, 0.25), startCamera: camera)
+        animating = true
         hover = nil
+    }
+
+    /// Sets the unfold value drawn; observers see it in steps of 5 % and
+    /// at the ends.
+    private func show(_ value: Double) {
+        liveUnfold = value
+        if abs(value - unfold) >= 0.05 || ((value == 0 || value == 1) && value != unfold) {
+            unfold = value
+        }
     }
 
     /// Advances animations; returns the unfold value to draw. Called by the
     /// map view every frame while something moves.
     func animationStep(at time: CFTimeInterval) -> Double {
         if var t = transition {
-            let p = min(1, (time - t.start) / max(t.duration, 1e-3))
+            let p = max(0, min(1, (time - t.start) / max(t.duration, 1e-3)))
             switch t.phase {
             case .folding:
-                unfold = t.from * (1 - Self.ease(p))
+                show(t.from * (1 - Self.ease(p)))
                 if p >= 1 {
-                    unfold = 0
+                    show(0)
                     t.phase = .waiting
                     transition = t
                     if pending != nil { swapInPending() }
                 }
             case .waiting:
-                unfold = 0
+                show(0)
             case .unfolding:
-                unfold = Self.ease(p)
+                show(Self.ease(p))
                 if p >= 1 {
-                    unfold = 1
+                    show(1)
                     transition = nil
+                    animating = false
                     if let state { globe = Self.facingRoot(state) }
                 }
             }
         } else if let a = foldAnimation {
             let p = max(0, min(1, (time - a.start) / max(a.duration, 1e-3)))
             let target: Double = a.from >= 0.5 ? 0 : 1
-            unfold = a.from + (target - a.from) * Self.ease(p)
-            if p >= 1 { foldAnimation = nil }
+            show(a.from + (target - a.from) * Self.ease(p))
+            if p >= 1 {
+                show(target)
+                foldAnimation = nil
+                animating = false
+            }
         }
-        return unfold
+        return liveUnfold
     }
 
     var isAnimating: Bool { transition != nil || foldAnimation != nil }
@@ -484,6 +545,7 @@ final class AppModel {
         state = new
         camera = MapCamera()
         status = Self.describe(new)
+        labels = []
         computeLabels()
         transition = Transition(phase: .unfolding, start: CACurrentMediaTime(), from: 0, duration: Self.unfoldDuration)
     }
@@ -494,9 +556,10 @@ final class AppModel {
     /// Folds the map into a globe, or unfolds it.
     func toggleFold() {
         guard transition == nil else { return }
-        if unfold >= 1, let state { globe = Self.facingRoot(state) }
-        foldAnimation = Transition(phase: .folding, start: CACurrentMediaTime(), from: unfold,
-                                   duration: Self.unfoldDuration * (unfold >= 0.5 ? unfold : 1 - unfold))
+        if liveUnfold >= 1, let state { globe = Self.facingRoot(state) }
+        foldAnimation = Transition(phase: .folding, start: CACurrentMediaTime(), from: liveUnfold,
+                                   duration: Self.unfoldDuration * (liveUnfold >= 0.5 ? liveUnfold : 1 - liveUnfold))
+        animating = true
     }
 
     func rotateGlobe(by delta: CGSize) {
@@ -517,7 +580,7 @@ final class AppModel {
 
     /// - Parameter slack: map units of gap still counted as the face beside it.
     func hover(at q: Vec2, viewPoint: CGPoint, slack: Double = 0) {
-        guard let state, unfold >= 1, let (face, location) = state.location(atMapPoint: q, slack: slack) else {
+        guard let state, liveUnfold >= 1, let (face, location) = state.location(atMapPoint: q, slack: slack) else {
             hover = nil
             return
         }

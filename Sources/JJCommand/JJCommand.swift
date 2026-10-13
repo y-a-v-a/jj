@@ -324,6 +324,10 @@ struct Animate: ParsableCommand {
     @Flag(help: "Dark variant.")
     var dark = false
 
+    func validate() throws {
+        guard frames >= 2 else { throw ValidationError("--frames needs at least 2") }
+    }
+
     func run() throws {
         let engine = try map.engine()
         let state = try map.build(engine)
@@ -340,7 +344,7 @@ struct Animate: ParsableCommand {
                                               date: try map.resolvedDate(), unfold: t, globe: tilt * globe)
             images.append(try renderer.image(state, settings: settings, width: width, height: h))
         }
-        images += Array(repeating: images.last!, count: 12)
+        if let last = images.last { images += Array(repeating: last, count: 12) }
         try MapExport.gif(images, delay: 1.0 / 24).write(to: URL(fileURLWithPath: output))
         print("\(images.count) frames → \(output)")
     }

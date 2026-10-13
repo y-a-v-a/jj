@@ -269,6 +269,7 @@ struct ColoringPicker: View {
 
 struct ExportMenu: View {
     let model: AppModel
+    @State private var isExporting = false
 
     var body: some View {
         Menu {
@@ -278,15 +279,20 @@ struct ExportMenu: View {
             Divider()
             Button("Copy Image") { copy() }
         } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
+            Label(isExporting ? "Exporting…" : "Export", systemImage: "square.and.arrow.up")
         }
         .help("Export the map")
-        .disabled(model.state == nil)
+        .disabled(model.state == nil || isExporting)
     }
 
-    @MainActor private func render(width: Int, unfold: Double = 1) throws -> CGImage? {
+    /// What an export needs, captured on the main actor.
+    private struct Job: Sendable {
+        let state: MapState
+        let settings: FrameSettings
+    }
+
+    @MainActor private func job(width: Int, unfold: Double = 1) -> Job? {
         guard let state = model.state else { return nil }
-        let renderer = try MapRenderer()
         let height = MapExport.height(for: state, width: width)
         var settings = MapExport.settings(for: state, palette: model.palette, dark: model.isDark, width: width, height: height,
                                           coloring: model.coloring, layers: model.layers, date: model.date, unfold: unfold,
@@ -294,19 +300,43 @@ struct ExportMenu: View {
         settings.sealSlits = model.sealSlits && state.appearance.sealSlits
         settings.lineScale *= model.lineWeight
         settings.graticuleStep = model.graticuleStep
-        return try renderer.image(state, settings: settings, width: width, height: height)
+        return Job(state: state, settings: settings)
+    }
+
+    /// Renders off the main thread. Very large images get fewer samples so
+    /// the colour and depth targets stay within a few hundred megabytes.
+    nonisolated private static func render(_ job: Job, width: Int, renderer: MapRenderer? = nil) throws -> CGImage {
+        var width = width
+        var height = MapExport.height(for: job.state, width: width)
+        // At most about 50 megapixels.
+        if width * height > 50_000_000 {
+            let k = (50_000_000 / Double(width * height)).squareRoot()
+            width = Int(Double(width) * k)
+            height = MapExport.height(for: job.state, width: width)
+        }
+        let r = try renderer ?? MapRenderer(sampleCount: width * height > 16_000_000 ? 2 : 4)
+        var settings = job.settings
+        settings.viewport = MapExport.viewport(for: job.state, width: Double(width), height: Double(height), unfold: settings.unfold)
+        return try r.image(job.state, settings: settings, width: width, height: height)
+    }
+
+    @MainActor private func run(_ work: @escaping @Sendable () throws -> Void) {
+        isExporting = true
+        Task {
+            let failure: Error? = await Task.detached(priority: .userInitiated) {
+                do { try work(); return nil } catch { return error }
+            }.value
+            isExporting = false
+            if let failure { NSAlert(error: failure).runModal() }
+        }
     }
 
     @MainActor private func export(width: Int) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "\(model.layoutID).png"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            if let image = try render(width: width) { try MapExport.png(image).write(to: url) }
-        } catch {
-            NSAlert(error: error).runModal()
-        }
+        guard panel.runModal() == .OK, let url = panel.url, let job = job(width: width) else { return }
+        run { try MapExport.png(try Self.render(job, width: width)).write(to: url) }
     }
 
     @MainActor private func exportGIF() {
@@ -314,22 +344,26 @@ struct ExportMenu: View {
         panel.allowedContentTypes = [.gif]
         panel.nameFieldStringValue = "\(model.layoutID)-unfolding.gif"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            var frames: [CGImage] = []
-            for k in 0..<60 {
-                let t = AppModel.ease(Double(k) / 59)
-                if let image = try render(width: 900, unfold: t) { frames.append(image) }
-            }
-            frames += Array(repeating: frames.last!, count: 24)
+        let jobs = (0..<60).compactMap { job(width: 900, unfold: AppModel.ease(Double($0) / 59)) }
+        guard !jobs.isEmpty else { return }
+        run {
+            // One renderer for every frame: the mesh is uploaded once.
+            let renderer = try MapRenderer()
+            var frames = try jobs.map { try Self.render($0, width: 900, renderer: renderer) }
+            if let last = frames.last { frames += Array(repeating: last, count: 24) }
             try MapExport.gif(frames, delay: 1.0 / 25).write(to: url)
-        } catch {
-            NSAlert(error: error).runModal()
         }
     }
 
     @MainActor private func copy() {
-        guard let image = try? render(width: 2400) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: NSSize(width: image.width / 2, height: image.height / 2))])
+        guard let job = job(width: 2400) else { return }
+        isExporting = true
+        Task {
+            let image = await Task.detached(priority: .userInitiated) { try? Self.render(job, width: 2400) }.value
+            isExporting = false
+            guard let image else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: NSSize(width: image.width / 2, height: image.height / 2))])
+        }
     }
 }
