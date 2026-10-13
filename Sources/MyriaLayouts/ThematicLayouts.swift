@@ -494,7 +494,11 @@ public struct DayNightLayout: Layout {
         let sun = SolarPosition.sunDirection(at: p.date)
         let subsolar = GeoPoint(sun)
         let elevation = context.edges.map { abs($0.midpoint.dot(sun)) }
-        let weights = Weights.add(elevation, order(context, center: subsolar.longitude, strength: 0.002))
+        // Day and night are held together by one hinge on the terminator;
+        // keep it at dusk on the equator, so night always hangs east of day.
+        let dusk = GeoPoint(latitude: 0, longitude: subsolar.longitude + 90).unitVector
+        let bridge = context.edges.map { 0.01 * max(0, $0.midpoint.dot(dusk)) }
+        let weights = Weights.add(Weights.add(elevation, order(context, center: subsolar.longitude, strength: 0.002)), bridge)
         return LayoutCut(hinges: context.mesh.hinges(weights: weights), root: context.face(at: subsolar))
     }
 

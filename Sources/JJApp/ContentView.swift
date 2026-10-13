@@ -374,7 +374,17 @@ struct TimeScrubber: View {
                 .frame(width: 150)
                 .help("Scrub through the day: watch the night and the seams move")
             Text(offsetText).monospacedDigit().frame(width: 58, alignment: .leading)
-            Button("Now") { model.timeOffset = 0 }.disabled(model.timeOffset == 0)
+            Button {
+                model.toggleTimeLapse()
+            } label: {
+                Image(systemName: model.isTimeLapse ? "pause.fill" : "forward.fill")
+            }
+            .help(model.isTimeLapse ? "Stop the time-lapse" : "Time-lapse: an hour a second; watch the seams and the night sweep round")
+            Button("Now") {
+                if model.isTimeLapse { model.toggleTimeLapse() }
+                model.timeOffset = 0
+            }
+            .disabled(model.timeOffset == 0)
         }
         .padding(.horizontal, 8)
     }

@@ -570,7 +570,7 @@ public final class MapRenderer {
         }
 
         // An atmosphere around the globe while it is folded.
-        if folded {
+        if folded && s.atmosphere {
             let closed = Float(1 - min(max(s.unfold, 0), 1))
             let radius = Float(s.viewport.scale * s.pixelScale)
             let darkPage = style.background.relativeLuminance < 0.2

@@ -168,6 +168,25 @@ final class AppModel {
     }
     var date: Date { now.addingTimeInterval(timeOffset) }
     private var lastCutMinute = -1
+    /// Time-lapse: the shown time runs at an hour a second.
+    private(set) var isTimeLapse = false
+    private var timeLapseTimer: Timer?
+
+    func toggleTimeLapse() {
+        isTimeLapse.toggle()
+        timeLapseTimer?.invalidate()
+        timeLapseTimer = nil
+        guard isTimeLapse else { return }
+        timeLapseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Wrap within a day either way of now.
+                var next = self.timeOffset + 180
+                if next > 86_400 { next -= 2 * 86_400 }
+                self.timeOffset = next
+            }
+        }
+    }
 
     // MARK: View state
 
@@ -286,6 +305,7 @@ final class AppModel {
         rebuild()
         renderThumbnails()
         if defaults.bool(forKey: "tour") { toggleTour() }
+        if defaults.bool(forKey: "timelapse") { toggleTimeLapse() }
         // Load what hover cards and layers read, so the first use doesn't stall.
         let data = engine.data
         Task.detached(priority: .utility) {

@@ -121,7 +121,7 @@ struct RenderTests {
     /// Closed, the map is the globe: a disc filling π/4 of its bounding square.
     @Test func foldsIntoAGlobe() throws {
         let state = try Visual.build("geo-continents")
-        let pixels = try Visual.render(state, width: 600, unfold: 0, square: true)
+        let pixels = try Visual.render(state, width: 600, settings: { $0.atmosphere = false }, unfold: 0, square: true)
         try Visual.save(pixels, "globe")
         let bg = Palette.vanWijk.light.background
         let background = pixels.count { abs($0.0 - Int(bg.r * 255)) < 4 && abs($0.1 - Int(bg.g * 255)) < 4 && abs($0.2 - Int(bg.b * 255)) < 4 }

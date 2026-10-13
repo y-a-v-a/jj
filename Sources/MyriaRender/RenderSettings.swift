@@ -107,6 +107,8 @@ public struct FrameSettings: Sendable {
     public var mapLines: [MapLine]
     /// Close slits narrower than about a pixel.
     public var sealSlits: Bool
+    /// A soft glow around the globe while folded.
+    public var atmosphere = true
 
     public init(style: PaletteStyle, coloring: LayoutAppearance.Coloring, layers: Set<LayerID>, date: Date = Date(),
                 unfold: Double = 1, globe: Mat3 = .identity, viewport: Viewport, pixelScale: Double = 1,
