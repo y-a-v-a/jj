@@ -118,6 +118,32 @@ struct RenderTests {
         }
     }
 
+    /// Figure 13: closing the gaps bends the faces as little as it can, so
+    /// the closed map still shows about the world's share of land.
+    @Test func closedGapsKeepTheLandShare() throws {
+        let state = try Visual.build("geo-continents", mesh: .geodesic(frequency: 16))
+        _ = try #require(state.closedGaps)
+        var style = Palette.vanWijk.light
+        style.land = RGBA(1, 0, 0)
+        style.ocean = RGBA(0, 0, 1)
+        style.hillshade = 0
+        let bounds = state.bounds(closing: 1)
+        let width = 1600, height = Int((1600 - 32) * bounds.height / bounds.width + 32)
+        let pixels = try Visual.render(state, width: width) {
+            $0.style = style
+            $0.coloring = .landSea
+            $0.layers = [.land]
+            $0.sealSlits = false
+            $0.closing = 1
+            $0.viewport = Viewport(bounds: bounds, size: Vec2(Double(width), Double(height)))
+        }
+        try Visual.save(pixels, "closed-gaps")
+        let land = pixels.count { $0.0 > 200 && $0.2 < 60 }
+        let sea = pixels.count { $0.2 > 200 && $0.0 < 60 }
+        let share = Double(land) / Double(land + sea)
+        #expect(abs(share - 0.292) < 0.04, "land share \(share)")
+    }
+
     /// A paper globe: one PDF page per sheet, and the map printed on the
     /// pieces in the right amounts (land red, sea blue: 29 % land on paper
     /// too).

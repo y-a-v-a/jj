@@ -51,9 +51,44 @@ public final class MapState: Sendable {
     }
 
     /// The location and face at a map point, if any face covers it.
-    /// - Parameter slack: gaps narrower than this (map units) count as covered.
-    public func location(atMapPoint q: Vec2, slack: Double = 0) -> (face: Int, location: GeoPoint)? {
-        projection.inverse(q, slack: slack).map { ($0.face, $0.point) }
+    /// - Parameters:
+    ///   - slack: gaps narrower than this (map units) count as covered.
+    ///   - closing: how far the gaps are closed (see `closedGaps`).
+    public func location(atMapPoint q: Vec2, slack: Double = 0, closing: Double = 0) -> (face: Int, location: GeoPoint)? {
+        if closing > 0, let gaps = closedGapsIfReady, let hit = gaps.face(at: q, amount: closing, frames: mesh.frames) {
+            return (hit.face, GeoPoint(mesh.frames[hit.face].spherePoint(hit.local)))
+        }
+        return projection.inverse(q, slack: slack).map { ($0.face, $0.point) }
+    }
+
+    /// The map with its interrupts removed (van Wijk's figure 13), computed
+    /// on first use, which may take a second; nil unless every face is a
+    /// triangle.
+    public var closedGaps: ClosedGaps? {
+        context.cached("closedGaps:\(id)") { ClosedGaps(projection: projection) }
+    }
+
+    /// `closedGaps` once computed, without computing it.
+    public var closedGapsIfReady: ClosedGaps? {
+        context.isCached("closedGaps:\(id)") ? closedGaps : nil
+    }
+
+    /// Whether gaps can be closed: every face a triangle.
+    public var canCloseGaps: Bool { mesh.polyhedron.faces.allSatisfy { $0.count == 3 } }
+
+    /// Where a place lies on the flat map with the gaps closed by `closing`.
+    public func mapPoint(_ p: GeoPoint, closing: Double = 0) -> Vec2 {
+        guard closing > 0, let gaps = closedGapsIfReady else { return projection.project(p) }
+        let f = mesh.face(containing: p.unitVector)
+        guard let local = mesh.frames[f].gnomonic(p.unitVector) else { return projection.project(p) }
+        let (a, b, t) = gaps.affine(face: f, local: mesh.frames[f].localVertices, amount: closing)
+        return a * local.x + b * local.y + t
+    }
+
+    /// The flat map's bounds with the gaps closed by `closing`.
+    public func bounds(closing: Double) -> Rect2 {
+        guard closing > 0, let gaps = closedGapsIfReady else { return projection.bounds }
+        return gaps.bounds(amount: closing, openBounds: projection.bounds)
     }
 }
 

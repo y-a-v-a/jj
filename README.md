@@ -118,6 +118,26 @@ shoreline of the ocean that may once have been there.
 
 ![The Midnight palette](docs/gallery-midnight.jpg)
 
+## Closing the gaps
+
+Van Wijk's figure 13 removes the interrupts: *"We matched corresponding
+vertices at a distance below a certain threshold, starting at the ends of
+gaps, followed by a finite element simulation to redistribute the points
+of the mesh … repeated until no corresponding vertices could be found."*
+**Close the Gaps** in the inspector does that to any map on a triangle
+mesh, animated: each round zips together the two copies of every vertex
+that have come within an edge length of each other (at first at the
+narrow ends of the gaps), then the map relaxes as an elastic sheet, every
+face as close to its own shape as the closed seams allow
+(as-rigid-as-possible, solved by conjugate gradients). On 11 520 faces
+it takes about 0.3 s and 15 to 20 rounds; some 96 % of the seams close and the
+rest become the outline. The faces stay triangles, so the renderer only
+swaps each face's rigid pose for an affine one; hover, search and the
+graticule follow. Films end by closing the gaps when they are closed in
+the app (or with `jj animate --close`).
+
+![North Up South Down and The Coastline of the Earth, open and with the gaps closed](docs/closed-gaps.jpg)
+
 ## Paper globes
 
 A myriahedral map is a polyhedron cut open, so it can be closed again by
@@ -161,6 +181,8 @@ swift build -c release --product jj
 .build/release/jj render -l rivers -m graticule:0.5 --width 8000 -o rivers.png
 .build/release/jj animate -l geo-coastline -o unfold.gif
 .build/release/jj animate -l tectonic --width 3840 -o plates.mov
+.build/release/jj animate -l geo-coastline --close -o figure13.mov
+.build/release/jj render -l geo-northUp -m geodesic:24 --close 1 -o closed.png
 .build/release/jj paper -l platonic --diameter 10 -o icosahedron.pdf
 .build/release/jj paper -l coastline --detail fine --paper a3 -o coastlines.pdf
 .build/release/jj gallery --palette midnight --dark --sheet sheet.jpg
@@ -239,6 +261,9 @@ the pixels:
   map's pixels reproduce the Earth's 29.2 % land share within 1.5 points;
 - the closed map is a disc; palettes keep land, sea and neighbouring
   regions apart in both variants; snapshots of every layout stay put;
+- closing the gaps leaves under a fifth of the seams open, turns no face
+  over, keeps faces near their own size, and the closed map still shows
+  27 % land;
 - paper globes fold back: every face in one piece, each piece a tree of
   folds, both sides of a seam equally long, nothing overlapping on the
   sheets, and the printed pages showing 28 % land.

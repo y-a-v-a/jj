@@ -109,6 +109,9 @@ public struct FrameSettings: Sendable {
     public var sealSlits: Bool
     /// A soft glow around the globe while folded.
     public var atmosphere = true
+    /// How far the flat map's gaps are closed (van Wijk's figure 13): 0 the
+    /// myriahedral map, 1 the map without interrupts. Triangle meshes only.
+    public var closing = 0.0
     /// Points to mark in map coordinates, each with a pulse phase 0…1.
     public var markers: [(point: Vec2, phase: Double)] = []
 

@@ -163,7 +163,7 @@ public final class MapRenderer {
     private var regionPaints: [DatasetID: (slots: [Int: Int], count: Int)] = [:]
     private var paintBuffers: [String: GPUArray] = [:]
     // Per frame.
-    private var poseKey: (UUID, Double, Mat3)?
+    private var poseKey: (UUID, Double, Mat3, Double)?
     private var poseBuffer: MTLBuffer?
     private let poseRing = BufferRing()
     private let foldScratch = Folding.FoldScratch()
@@ -402,20 +402,31 @@ public final class MapRenderer {
         return highlight
     }
 
-    private func preparePoses(_ state: MapState, unfold: Double, globe: Mat3) {
-        if let key = poseKey, key.0 == state.id, key.1 == unfold, key.2 == globe, poseBuffer != nil { return }
+    private func preparePoses(_ state: MapState, unfold: Double, globe: Mat3, closing: Double) {
+        let closing = unfold >= 1 && closing > 0 && state.closedGapsIfReady != nil ? closing : 0
+        if let key = poseKey, key.0 == state.id, key.1 == unfold, key.2 == globe, key.3 == closing, poseBuffer != nil { return }
         let count = state.mesh.faceCount + 1
         let length = count * MemoryLayout<FacePoseGPU>.stride
         // A fresh buffer of the ring: earlier frames may still read theirs.
         guard let buffer = poseRing.next(device, length: length) else { return }
         poseBuffer = buffer
         let poses = buffer.contents().bindMemory(to: FacePoseGPU.self, capacity: count)
-        state.poses.forEachPoseRows(unfold: unfold, globe: globe, scratch: foldScratch) { f, r0, r1, r2 in
-            poses[f] = FacePoseGPU(r0: r0, r1: r1, r2: r2)
+        if closing > 0, let gaps = state.closedGapsIfReady {
+            // Closing the gaps bends every face by its own affine map.
+            let frames = state.mesh.frames
+            for f in 0..<state.mesh.faceCount {
+                let (a, b, t) = gaps.affine(face: f, local: frames[f].localVertices, amount: closing)
+                poses[f] = FacePoseGPU(r0: SIMD4(Float(a.x), Float(b.x), 0, Float(t.x)), r1: SIMD4(Float(a.y), Float(b.y), 0, Float(t.y)),
+                                       r2: SIMD4(0, 0, 1, 0))
+            }
+        } else {
+            state.poses.forEachPoseRows(unfold: unfold, globe: globe, scratch: foldScratch) { f, r0, r1, r2 in
+                poses[f] = FacePoseGPU(r0: r0, r1: r1, r2: r2)
+            }
         }
         // One more pose, the identity, for lines given in map coordinates.
         poses[count - 1] = FacePoseGPU(r0: SIMD4(1, 0, 0, 0), r1: SIMD4(0, 1, 0, 0), r2: SIMD4(0, 0, 1, 0))
-        poseKey = (state.id, unfold, globe)
+        poseKey = (state.id, unfold, globe, closing)
     }
 
     // MARK: Textures
@@ -502,7 +513,7 @@ public final class MapRenderer {
     public func encode(_ state: MapState, settings s: FrameSettings, into encoder: MTLRenderCommandEncoder, drawableSize: CGSize) {
         prepareMesh(state)
         prepareState(state)
-        preparePoses(state, unfold: s.unfold, globe: s.globe)
+        preparePoses(state, unfold: s.unfold, globe: s.globe, closing: s.closing)
         guard let frames, let base, let poseBuffer else { return }
         // Long arms of a folding map may reach past the depth range: clamp, don't clip.
         encoder.setDepthClipMode(.clamp)

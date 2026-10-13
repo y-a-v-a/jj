@@ -341,7 +341,8 @@ struct LabelLayer: View {
     var occluded: [CGRect] = []
 
     var body: some View {
-        if model.unfold >= 1, model.transition == nil, model.layers.contains(.labels), let viewport = MapGeometry.mapViewport(model, size: size) {
+        if model.unfold >= 1, model.transition == nil, !model.showsClosedGaps, model.layers.contains(.labels),
+           let viewport = MapGeometry.mapViewport(model, size: size) {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 Canvas { context, _ in draw(&context, viewport: viewport) }
             }

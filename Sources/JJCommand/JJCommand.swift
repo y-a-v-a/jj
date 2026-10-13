@@ -161,17 +161,31 @@ struct Render: ParsableCommand {
     @Option(help: "Layers to add or remove, e.g. +cuts,+mesh,-graticule.")
     var layers: String?
 
+    @Option(help: "Close the gaps (van Wijk's figure 13): 0 open, 1 closed. Triangle meshes only.")
+    var close = 0.0
+
     func run() throws {
         let engine = try map.engine()
         let start = Date()
         let state = try map.build(engine)
+        if close > 0 {
+            let t0 = Date()
+            guard let gaps = state.closedGaps else { throw ValidationError("--close needs a mesh of triangles") }
+            print(String(format: "Closed the gaps in %.2f s: %d rounds, %d vertex pairs joined, %d of %d seams still open",
+                         Date().timeIntervalSince(t0), gaps.rounds, gaps.joined, gaps.openSeams.count, state.projection.cutEdges.count))
+        }
         let built = Date()
         let renderer = try MapRenderer()
-        let h = height ?? (unfold < 1 ? width : MapExport.height(for: state, width: width))
+        let bounds = state.bounds(closing: close)
+        let h = height ?? (unfold < 1 ? width : Int(((Double(width) - 32) * bounds.height / bounds.width + 32).rounded()))
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
-        let settings = try MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h,
+        var settings = try MapExport.settings(for: state, palette: palette, dark: dark, width: width, height: h,
                                               coloring: parseColoring(coloring), layers: parseLayers(layers, state: state),
                                               date: map.resolvedDate(), unfold: unfold)
+        if close > 0 {
+            settings.closing = close
+            settings.viewport = Viewport(bounds: bounds, size: Vec2(Double(width), Double(h)))
+        }
         let image = try renderer.image(state, settings: settings, width: width, height: h)
         try MapExport.png(image).write(to: URL(fileURLWithPath: output))
         let timing = state.timings.map { String(format: "%@ %.2fs", $0.0, $0.1) }.joined(separator: ", ")
@@ -373,6 +387,9 @@ struct Animate: ParsableCommand {
     @Flag(help: "Dark variant.")
     var dark = false
 
+    @Flag(help: "Films only: close the gaps at the end (van Wijk's figure 13).")
+    var close = false
+
     func validate() throws {
         guard frames >= 2 else { throw ValidationError("--frames needs at least 2") }
     }
@@ -387,14 +404,17 @@ struct Animate: ParsableCommand {
             let (w, h) = MapExport.movieSize(width: width)
             let tilt = Mat3.rotation(axis: .unitX, angle: -.pi / 2) * Mat3.rotation(axis: .unitZ, angle: -.pi / 2)
             let globe = tilt * Mat3.rotationZ(-(state.parameters["center"] ?? 10) * .pi / 180)
-            let frames = MapExport.unfoldingStoryboard(fps: 30, globe: globe)
+            if close, state.closedGaps == nil { throw ValidationError("--close needs a mesh of triangles") }
+            let frames = MapExport.unfoldingStoryboard(fps: 30, globe: globe, close: close ? 3 : 0)
             let date = try map.resolvedDate()
             let start = Date()
             try MapExport.movie(to: URL(fileURLWithPath: output), width: w, height: h, fps: 30, count: frames.count) { k in
+                let frame = frames[k]
                 var settings = MapExport.settings(for: state, palette: palette, dark: dark, width: w, height: h, date: date,
-                                                  unfold: frames[k].unfold, globe: frames[k].globe)
+                                                  unfold: frame.unfold, globe: frame.globe)
+                settings.closing = frame.closing
                 settings.viewport = MapExport.fittedViewport(for: state, width: Double(w), height: Double(h),
-                                                             unfold: frames[k].unfold, globe: frames[k].globe)
+                                                             unfold: frame.unfold, globe: frame.globe, closing: frame.closing)
                 return try renderer.image(state, settings: settings, width: w, height: h)
             }
             print(String(format: "%d frames of %d×%d in %.1f s → %@", frames.count, w, h, Date().timeIntervalSince(start), output))

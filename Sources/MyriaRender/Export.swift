@@ -24,14 +24,17 @@ public enum MapExport {
     /// flat map or anything between, so no frame of an unfolding film loses
     /// part of it, whatever the shapes of the map and the frame.
     public static func fittedViewport(for state: MapState, width: Double, height: Double, unfold: Double, globe: Mat3,
-                                      margin: Double = 16) -> Viewport {
+                                      closing: Double = 0, margin: Double = 16) -> Viewport {
+        if unfold >= 1, closing > 0 {
+            return Viewport(bounds: state.bounds(closing: closing), size: Vec2(width, height), margin: margin)
+        }
         guard unfold > 0, unfold < 1 else { return viewport(for: state, width: width, height: height, unfold: unfold, margin: margin) }
         return Viewport.around(state, unfold: unfold, globe: globe, size: Vec2(width, height), margin: margin, halo: 0.15)
     }
 
     /// The height that suits a map `width` wide.
-    public static func height(for state: MapState, width: Int, margin: Double = 16) -> Int {
-        let b = state.projection.bounds
+    public static func height(for state: MapState, width: Int, margin: Double = 16, closing: Double = 0) -> Int {
+        let b = state.bounds(closing: closing)
         return Int(((Double(width) - 2 * margin) * b.height / max(b.width, 1e-9) + 2 * margin).rounded())
     }
 
@@ -55,24 +58,42 @@ public enum MapExport {
         return data as Data
     }
 
+    /// One frame of a film: how far unfolded, the globe's turn, and how
+    /// far the gaps are closed.
+    public struct FilmFrame: Sendable {
+        public var unfold: Double
+        public var globe: Mat3
+        public var closing: Double
+    }
+
     /// The frames of an unfolding film: the globe turns a quarter turn into
     /// place, unfolds with van Wijk's easing, α' = α (1 + cos(π t / T)) / 2,
-    /// and the map holds still. Each frame is (unfold, globe).
+    /// and the map holds still; with `close` seconds, it then closes its
+    /// gaps (figure 13) and holds again.
     public static func unfoldingStoryboard(fps: Double, globe: Mat3, turn: Double = 1.5, unfold: Double = 4,
-                                           hold: Double = 2) -> [(unfold: Double, globe: Mat3)] {
-        var frames: [(unfold: Double, globe: Mat3)] = []
-        let turning = Int((turn * fps).rounded()), unfolding = Int((unfold * fps).rounded()), holding = Int((hold * fps).rounded())
+                                           hold: Double = 2, close: Double = 0) -> [FilmFrame] {
+        var frames: [FilmFrame] = []
+        func count(_ seconds: Double) -> Int { Int((seconds * fps).rounded()) }
+        func ease(_ t: Double) -> Double { (1 - cos(.pi * t)) / 2 }
+        let turning = count(turn), unfolding = count(unfold)
         for k in 0..<turning {
             // Ease out of the turn: fast at first, settling as it starts to open.
             let t = Double(k) / Double(max(turning, 1))
-            let angle = -.pi / 2 * (1 - sin(t * .pi / 2))
-            frames.append((0, globe * Mat3.rotationZ(angle)))
+            frames.append(FilmFrame(unfold: 0, globe: globe * Mat3.rotationZ(-.pi / 2 * (1 - sin(t * .pi / 2))), closing: 0))
         }
         for k in 0...unfolding {
-            let t = Double(k) / Double(max(unfolding, 1))
-            frames.append(((1 - cos(.pi * t)) / 2, globe))
+            frames.append(FilmFrame(unfold: ease(Double(k) / Double(max(unfolding, 1))), globe: globe, closing: 0))
         }
-        frames += Array(repeating: (1, globe), count: holding)
+        if close > 0 {
+            frames += Array(repeating: FilmFrame(unfold: 1, globe: globe, closing: 0), count: count(hold / 2))
+            let closing = count(close)
+            for k in 0...closing {
+                frames.append(FilmFrame(unfold: 1, globe: globe, closing: ease(Double(k) / Double(max(closing, 1)))))
+            }
+            frames += Array(repeating: FilmFrame(unfold: 1, globe: globe, closing: 1), count: count(hold))
+        } else {
+            frames += Array(repeating: FilmFrame(unfold: 1, globe: globe, closing: 0), count: count(hold))
+        }
         return frames
     }
 

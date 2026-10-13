@@ -321,6 +321,7 @@ final class AppModel {
     private var launchUnfold: Double?
     private var launchZoom: Double?
     private var didLaunchFind = false
+    private var didLaunchClose = false
 
     /// Starts or stops the tour of all layouts.
     func toggleTour() {
@@ -355,6 +356,7 @@ final class AppModel {
     ///   unfold the new one from it. A rebuild during a transition joins it.
     func rebuild(transition: Bool = false) {
         buildGeneration += 1
+        if liveClosing > 0 || closingAnimation != nil { resetGaps() }
         pending = nil
         let sameWorld = state != nil && state?.data.body == body
         if sameWorld && (transition || self.transition != nil) {
@@ -457,6 +459,7 @@ final class AppModel {
     private func install(_ new: MapState, resetCamera: Bool) {
         let first = state == nil
         state = new
+        resetGaps()
         labels = []
         if resetCamera {
             camera = MapCamera()
@@ -483,6 +486,14 @@ final class AppModel {
         if let z = launchZoom {
             launchZoom = nil
             camera.zoom = z
+        }
+        // -closeGaps YES: close the gaps once the map has opened.
+        if UserDefaults.standard.bool(forKey: "closeGaps"), !didLaunchClose {
+            didLaunchClose = true
+            Task {
+                try? await Task.sleep(for: .seconds(3.2))
+                setGapsClosed(true)
+            }
         }
         // -find Amsterdam: show where a place went once the map has opened.
         if let query = UserDefaults.standard.string(forKey: "find"), !didLaunchFind {
@@ -566,16 +577,81 @@ final class AppModel {
                 animating = false
             }
         }
+        if let c = closingAnimation {
+            let p = max(0, min(1, (time - c.start) / max(c.duration, 1e-3)))
+            liveClosing = c.from + (c.to - c.from) * Self.ease(p)
+            if p >= 1 {
+                liveClosing = c.to
+                closingAnimation = nil
+            }
+        }
         return liveUnfold
     }
 
-    var isAnimating: Bool { transition != nil || foldAnimation != nil }
+    var isAnimating: Bool { transition != nil || foldAnimation != nil || closingAnimation != nil }
+
+    // MARK: Closed gaps (van Wijk's figure 13)
+
+    /// The switch: whether the flat map's gaps are to be closed.
+    private(set) var gapsClosed = false
+    /// While the closed map is being computed.
+    private(set) var isComputingGaps = false
+    /// How far the gaps are closed, as drawn.
+    @ObservationIgnored private(set) var liveClosing = 0.0
+    /// The closing (or opening) under way; observed, so the view wakes.
+    private(set) var closingAnimation: ClosingAnimation?
+
+    struct ClosingAnimation: Equatable {
+        var start: CFTimeInterval
+        var from: Double
+        var to: Double
+        var duration: Double { 1.8 * abs(to - from) }
+    }
+
+    /// Whether the map shows (or is moving to or from) its closed form.
+    var showsClosedGaps: Bool { gapsClosed || closingAnimation != nil }
+
+    var canCloseGaps: Bool { state?.canCloseGaps ?? false }
+
+    /// Closes the gaps (computing the closed map first, once per map) or
+    /// opens them again; animated.
+    func setGapsClosed(_ closed: Bool) {
+        guard let state else { return }
+        gapsClosed = closed && state.canCloseGaps
+        guard gapsClosed else {
+            animateClosing(to: 0)
+            return
+        }
+        if state.closedGapsIfReady != nil {
+            if liveUnfold >= 1 { animateClosing(to: 1) }
+            return
+        }
+        isComputingGaps = true
+        Task {
+            await Task.detached(priority: .userInitiated) { _ = state.closedGaps }.value
+            isComputingGaps = false
+            guard self.state === state, gapsClosed, liveUnfold >= 1 else { return }
+            animateClosing(to: 1)
+        }
+    }
+
+    private func animateClosing(to target: Double) {
+        closingAnimation = liveClosing == target ? nil : ClosingAnimation(start: CACurrentMediaTime(), from: liveClosing, to: target)
+    }
+
+    /// A new map starts open.
+    private func resetGaps() {
+        gapsClosed = false
+        liveClosing = 0
+        closingAnimation = nil
+    }
 
     private func swapInPending() {
         guard let new = pending else { return }
         pending = nil
         // Same globe orientation: the closed maps coincide, so the swap is invisible.
         state = new
+        resetGaps()
         camera = MapCamera()
         status = Self.describe(new)
         labels = []
@@ -589,6 +665,17 @@ final class AppModel {
     /// Folds the map into a globe, or unfolds it.
     func toggleFold() {
         guard transition == nil else { return }
+        // A closed map opens its gaps before it folds.
+        if liveClosing > 0 || closingAnimation != nil {
+            let wait = 1.8 * liveClosing + 0.05
+            gapsClosed = false
+            animateClosing(to: 0)
+            Task {
+                try? await Task.sleep(for: .seconds(wait))
+                if self.liveClosing == 0 { self.toggleFold() }
+            }
+            return
+        }
         if liveUnfold >= 1, let state { globe = Self.facingRoot(state) }
         foldAnimation = Transition(phase: .folding, start: CACurrentMediaTime(), from: liveUnfold,
                                    duration: Self.unfoldDuration * (liveUnfold >= 0.5 ? liveUnfold : 1 - liveUnfold))
@@ -634,7 +721,7 @@ final class AppModel {
             let (east, north) = Spherical.tangentFrame(at: p)
             globe = Mat3(Vec3(east.x, north.x, p.x), Vec3(east.y, north.y, p.y), Vec3(east.z, north.z, p.z))
         } else {
-            camera = MapCamera(zoom: max(camera.zoom, 5), center: state.projection.project(place.location))
+            camera = MapCamera(zoom: max(camera.zoom, 5), center: state.mapPoint(place.location, closing: liveClosing))
         }
         searchText = ""
     }
@@ -643,7 +730,7 @@ final class AppModel {
     func markers(at time: CFTimeInterval) -> [(point: Vec2, phase: Double)] {
         guard let found, let state, time - found.time < 4 else { return [] }
         let phase = ((time - found.time) / 1.0).truncatingRemainder(dividingBy: 1)
-        return [(state.projection.project(found.location), phase)]
+        return [(state.mapPoint(found.location, closing: liveClosing), phase)]
     }
 
     var isMarking: Bool { found.map { CACurrentMediaTime() - $0.time < 4 } ?? false }
@@ -652,7 +739,7 @@ final class AppModel {
 
     /// - Parameter slack: map units of gap still counted as the face beside it.
     func hover(at q: Vec2, viewPoint: CGPoint, slack: Double = 0) {
-        guard let state, liveUnfold >= 1, let (face, location) = state.location(atMapPoint: q, slack: slack) else {
+        guard let state, liveUnfold >= 1, let (face, location) = state.location(atMapPoint: q, slack: slack, closing: liveClosing) else {
             hover = nil
             return
         }

@@ -92,6 +92,19 @@ struct InspectorView: View {
             }
             Section("Myriahedron") {
                 MeshPicker(model: model)
+                Toggle(isOn: Binding(get: { model.gapsClosed }, set: { model.setGapsClosed($0) })) {
+                    HStack(spacing: 6) {
+                        Text("Close the Gaps")
+                        if model.isComputingGaps { ProgressView().controlSize(.mini) }
+                    }
+                }
+                .disabled(!model.canCloseGaps || model.unfold < 1)
+                .help("Van Wijk's figure 13: the map without its interrupts")
+                Text(model.canCloseGaps
+                     ? "Figure 13: the seams zip shut from their narrow ends while the map relaxes like an elastic sheet; what cannot close becomes the outline."
+                     : "Closing the gaps needs a mesh of triangles: Geodesic or Hexagons.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Colouring") {
                 ColoringPicker(model: model)
@@ -314,13 +327,15 @@ struct ExportMenu: View {
 
     @MainActor private func job(width: Int, unfold: Double = 1) -> Job? {
         guard let state = model.state else { return nil }
-        let height = MapExport.height(for: state, width: width)
+        let height = MapExport.height(for: state, width: width, closing: unfold >= 1 ? model.liveClosing : 0)
         var settings = MapExport.settings(for: state, palette: model.palette, dark: model.isDark, width: width, height: height,
                                           coloring: model.coloring, layers: model.layers, date: model.date, unfold: unfold,
                                           globe: model.globe)
         settings.sealSlits = model.sealSlits && state.appearance.sealSlits
         settings.lineScale *= model.lineWeight
         settings.graticuleStep = model.graticuleStep
+        // The map as shown: with its gaps closed, if they are.
+        settings.closing = unfold >= 1 ? model.liveClosing : 0
         return Job(state: state, settings: settings)
     }
 
@@ -328,17 +343,18 @@ struct ExportMenu: View {
     /// the colour and depth targets stay within a few hundred megabytes.
     nonisolated private static func render(_ job: Job, width: Int, renderer: MapRenderer? = nil) throws -> CGImage {
         var width = width
-        var height = MapExport.height(for: job.state, width: width)
+        let closing = job.settings.closing
+        var height = MapExport.height(for: job.state, width: width, closing: closing)
         // At most about 50 megapixels.
         if width * height > 50_000_000 {
             let k = (50_000_000 / Double(width * height)).squareRoot()
             width = Int(Double(width) * k)
-            height = MapExport.height(for: job.state, width: width)
+            height = MapExport.height(for: job.state, width: width, closing: closing)
         }
         let r = try renderer ?? MapRenderer(sampleCount: width * height > 16_000_000 ? 2 : 4)
         var settings = job.settings
         settings.viewport = MapExport.fittedViewport(for: job.state, width: Double(width), height: Double(height),
-                                                     unfold: settings.unfold, globe: settings.globe)
+                                                     unfold: settings.unfold, globe: settings.globe, closing: closing)
         return try r.image(job.state, settings: settings, width: width, height: height)
     }
 
@@ -384,15 +400,19 @@ struct ExportMenu: View {
         panel.nameFieldStringValue = "\(model.layoutID)-unfolding.mov"
         guard panel.runModal() == .OK, let url = panel.url, let base = job(width: 3840) else { return }
         let (width, height) = MapExport.movieSize(width: 3840)
-        let frames = MapExport.unfoldingStoryboard(fps: 30, globe: model.globe)
+        // With the gaps closed in the app, the film ends by closing them.
+        let close = model.gapsClosed && base.state.closedGapsIfReady != nil
+        let frames = MapExport.unfoldingStoryboard(fps: 30, globe: model.globe, close: close ? 3 : 0)
         run {
             let renderer = try MapRenderer()
             try MapExport.movie(to: url, width: width, height: height, fps: 30, count: frames.count) { k in
                 var settings = base.settings
                 settings.unfold = frames[k].unfold
                 settings.globe = frames[k].globe
+                settings.closing = frames[k].closing
                 settings.viewport = MapExport.fittedViewport(for: base.state, width: Double(width), height: Double(height),
-                                                             unfold: settings.unfold, globe: settings.globe)
+                                                             unfold: settings.unfold, globe: settings.globe,
+                                                             closing: settings.closing)
                 return try renderer.image(base.state, settings: settings, width: width, height: height)
             }
             DispatchQueue.main.async { NSWorkspace.shared.activateFileViewerSelecting([url]) }

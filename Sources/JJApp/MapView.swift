@@ -18,7 +18,7 @@ struct MapView: NSViewRepresentable {
         // Read everything a frame depends on, so SwiftUI redraws on change.
         _ = (model.state, model.paletteID, model.isDark, model.coloring, model.layers, model.unfold, model.globe,
              model.camera, model.selectedGroup, model.date, model.sealSlits, model.lineWeight, model.graticuleStep,
-             model.transition?.phase, model.foldAnimation?.start, model.searchText)
+             model.transition?.phase, model.foldAnimation?.start, model.searchText, model.closingAnimation)
         view.redraw()
     }
 }
@@ -31,7 +31,7 @@ enum MapGeometry {
     /// The camera on the flat map.
     static func mapViewport(_ model: AppModel, size: CGSize) -> Viewport? {
         guard let state = model.state else { return nil }
-        return Viewport(bounds: state.projection.bounds, size: Vec2(size.width, size.height), zoom: model.camera.zoom,
+        return Viewport(bounds: state.bounds(closing: model.liveClosing), size: Vec2(size.width, size.height), zoom: model.camera.zoom,
                         center: model.camera.center, insetTop: model.viewInsets.top, insetBottom: model.viewInsets.bottom)
     }
 
@@ -140,6 +140,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
             highlightGroups: model.selectedGroup.map { [$0] } ?? [], mapLines: particles.lines,
             sealSlits: model.sealSlits && state.appearance.sealSlits)
         settings.markers = model.markers(at: CACurrentMediaTime())
+        settings.closing = model.liveClosing
         if case .groups = settings.coloring { settings.highlightGroups = [] }
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         renderer.encode(state, settings: settings, into: encoder, drawableSize: drawableSize)
@@ -278,11 +279,11 @@ final class MapMTKView: MTKView, MTKViewDelegate {
     override func mouseUp(with event: NSEvent) {
         defer { dragOrigin = nil }
         guard !dragged, event.clickCount == 1, flat, let q = mapPoint(viewPoint(event)), let state = model.state else { return }
-        if event.modifierFlags.contains(.option), let (_, location) = state.location(atMapPoint: q) {
+        if event.modifierFlags.contains(.option), let (_, location) = state.location(atMapPoint: q, closing: model.liveClosing) {
             recenter(on: location)
             return
         }
-        guard let (face, _) = state.location(atMapPoint: q, slack: pixelSlack), let groups = state.cut.faceGroups, groups[face] >= 0 else {
+        guard let (face, _) = state.location(atMapPoint: q, slack: pixelSlack, closing: model.liveClosing), let groups = state.cut.faceGroups, groups[face] >= 0 else {
             model.selectedGroup = nil
             return
         }
@@ -321,7 +322,7 @@ final class MapMTKView: MTKView, MTKViewDelegate {
     override func rightMouseDown(with event: NSEvent) {
         let p = viewPoint(event)
         let menu = NSMenu()
-        if flat, let q = mapPoint(p), let (_, location) = model.state?.location(atMapPoint: q) {
+        if flat, let q = mapPoint(p), let (_, location) = model.state?.location(atMapPoint: q, closing: model.liveClosing) {
             let item = NSMenuItem(title: "Centre the Map Here", action: #selector(centreHere(_:)), keyEquivalent: "")
             item.representedObject = location
             item.target = self
