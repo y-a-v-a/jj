@@ -97,7 +97,7 @@ gaps), a relief tint, and the fields every rocky world shares.
 - Changing layout **folds the map back into the globe, swaps the cut while
   closed, and unfolds the new map** (every layout closes into the same
   globe, so the swap is invisible), the globe turning to its new centre.
-  ⌘T tours the whole gallery this way.
+  ⌘T tours the whole gallery this way, and every world in turn.
 - A time scrubber (±24 h) with a **time-lapse**: at an hour a second the
   Day and Night map re-cuts continuously and the timezone clocks race.
 - Zoom with **⌘-scroll**, pinch, double-click or the **− = +** controls

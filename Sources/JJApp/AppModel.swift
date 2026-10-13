@@ -228,7 +228,8 @@ final class AppModel {
     /// One build at a time: newer requests wait and replace each other.
     @ObservationIgnored private var buildInFlight = false
     private var clock: Timer?
-    /// Cycling through the gallery, folding and unfolding between layouts.
+    /// Cycling through the gallery, folding and unfolding between layouts,
+    /// and on to the next world after the last.
     private(set) var isTouring = false
     private var tourTimer: Timer?
 
@@ -337,9 +338,22 @@ final class AppModel {
         tourTimer = Timer.scheduledTimer(withTimeInterval: 9, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.transition == nil, !self.isBuilding else { return }
-                self.selectNext(1)
+                self.tourStep()
             }
         }
+    }
+
+    /// The tour's next stop: the next layout, and after a world's last, the
+    /// next world, arriving as a globe that unfolds.
+    private func tourStep() {
+        guard let i = catalog.firstIndex(where: { $0.descriptor.id == layoutID }), i + 1 == catalog.count else {
+            selectNext(1)
+            return
+        }
+        let worlds = CelestialBody.all
+        let w = worlds.firstIndex { $0.id == bodyID } ?? 0
+        bodyID = worlds[(w + 1) % worlds.count].id
+        if let first = catalog.first?.descriptor.id { layoutID = first }
     }
 
     private func tick() {
