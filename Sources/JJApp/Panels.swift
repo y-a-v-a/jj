@@ -287,6 +287,7 @@ struct ExportMenu: View {
             Button("PNG Image (4K)…") { export(width: 3840) }
             Button("PNG Image (8K)…") { export(width: 7680) }
             Button("Unfolding Animation (GIF)…") { exportGIF() }
+            Button("Unfolding Film (4K)…") { exportFilm() }
             Divider()
             Button("Paper Globe (PDF)…") { showPaper = true }
             Divider()
@@ -337,7 +338,8 @@ struct ExportMenu: View {
         }
         let r = try renderer ?? MapRenderer(sampleCount: width * height > 16_000_000 ? 2 : 4)
         var settings = job.settings
-        settings.viewport = MapExport.viewport(for: job.state, width: Double(width), height: Double(height), unfold: settings.unfold)
+        settings.viewport = MapExport.fittedViewport(for: job.state, width: Double(width), height: Double(height),
+                                                     unfold: settings.unfold, globe: settings.globe)
         return try r.image(job.state, settings: settings, width: width, height: height)
     }
 
@@ -373,6 +375,28 @@ struct ExportMenu: View {
             var frames = try jobs.map { try Self.render($0, width: 900, renderer: renderer) }
             if let last = frames.last { frames += Array(repeating: last, count: 24) }
             try MapExport.gif(frames, delay: 1.0 / 25).write(to: url)
+        }
+    }
+
+    /// The globe turning into place, unfolding and holding still: HEVC, 4K.
+    @MainActor private func exportFilm() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.quickTimeMovie]
+        panel.nameFieldStringValue = "\(model.layoutID)-unfolding.mov"
+        guard panel.runModal() == .OK, let url = panel.url, let base = job(width: 3840) else { return }
+        let (width, height) = MapExport.movieSize(width: 3840)
+        let frames = MapExport.unfoldingStoryboard(fps: 30, globe: model.globe)
+        run {
+            let renderer = try MapRenderer()
+            try MapExport.movie(to: url, width: width, height: height, fps: 30, count: frames.count) { k in
+                var settings = base.settings
+                settings.unfold = frames[k].unfold
+                settings.globe = frames[k].globe
+                settings.viewport = MapExport.fittedViewport(for: base.state, width: Double(width), height: Double(height),
+                                                             unfold: settings.unfold, globe: settings.globe)
+                return try renderer.image(base.state, settings: settings, width: width, height: height)
+            }
+            DispatchQueue.main.async { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
     }
 

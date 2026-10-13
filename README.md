@@ -103,8 +103,10 @@ shoreline of the ocean that may once have been there.
 - Six palettes, each with a light and a dark variant: **Van Wijk 2008**
   (the yellow land and blue sea of the paper), **Atlas**, **Blueprint**,
   **Midnight**, **Ink** and **Terra**.
-- Export to 4K or 8K PNG, an unfolding GIF, the clipboard, or a **paper
-  globe** to print, cut out and fold (below).
+- Export to 4K or 8K PNG, an unfolding GIF or **4K film** (HEVC: the globe
+  turns into place, opens, and the map holds still, every frame framed
+  around the map as it stands), the clipboard, or a **paper globe** to
+  print, cut out and fold (below).
 
 ![Day and night, live, in the Terra palette](docs/app-light.jpg)
 
@@ -152,6 +154,7 @@ swift build -c release --product jj
 .build/release/jj render -l platonic -p solid=0 -o tetrahedron.png
 .build/release/jj render -l rivers -m graticule:0.5 --width 8000 -o rivers.png
 .build/release/jj animate -l geo-coastline -o unfold.gif
+.build/release/jj animate -l tectonic --width 3840 -o plates.mov
 .build/release/jj paper -l platonic --diameter 10 -o icosahedron.pdf
 .build/release/jj paper -l coastline --detail fine --paper a3 -o coastlines.pdf
 .build/release/jj gallery --palette midnight --dark --sheet sheet.jpg

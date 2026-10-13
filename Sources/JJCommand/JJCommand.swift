@@ -350,11 +350,11 @@ enum ContactSheet {
 }
 
 struct Animate: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Render the globe unfolding into the map as a GIF.")
+    static let configuration = CommandConfiguration(abstract: "Render the globe unfolding into the map: a GIF, or a film (.mov, HEVC).")
 
     @OptionGroup var map: MapOptions
 
-    @Option(name: .shortAndLong, help: "Output GIF file.")
+    @Option(name: .shortAndLong, help: "Output file: .gif, or .mov for a film.")
     var output = "unfold.gif"
 
     @Option(help: "Width in pixels.")
@@ -378,6 +378,24 @@ struct Animate: ParsableCommand {
         let state = try map.build(engine)
         let renderer = try MapRenderer()
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
+        if output.lowercased().hasSuffix(".mov") {
+            // A film: --width is the frame width (3840 for 4K).
+            let (w, h) = MapExport.movieSize(width: width)
+            let tilt = Mat3.rotation(axis: .unitX, angle: -.pi / 2) * Mat3.rotation(axis: .unitZ, angle: -.pi / 2)
+            let globe = tilt * Mat3.rotationZ(-(state.parameters["center"] ?? 10) * .pi / 180)
+            let frames = MapExport.unfoldingStoryboard(fps: 30, globe: globe)
+            let date = try map.resolvedDate()
+            let start = Date()
+            try MapExport.movie(to: URL(fileURLWithPath: output), width: w, height: h, fps: 30, count: frames.count) { k in
+                var settings = MapExport.settings(for: state, palette: palette, dark: dark, width: w, height: h, date: date,
+                                                  unfold: frames[k].unfold, globe: frames[k].globe)
+                settings.viewport = MapExport.fittedViewport(for: state, width: Double(w), height: Double(h),
+                                                             unfold: frames[k].unfold, globe: frames[k].globe)
+                return try renderer.image(state, settings: settings, width: w, height: h)
+            }
+            print(String(format: "%d frames of %d×%d in %.1f s → %@", frames.count, w, h, Date().timeIntervalSince(start), output))
+            return
+        }
         let h = MapExport.height(for: state, width: width)
         var images: [CGImage] = []
         let globe = Mat3.rotationZ(-(state.parameters["center"] ?? 10) * .pi / 180)
