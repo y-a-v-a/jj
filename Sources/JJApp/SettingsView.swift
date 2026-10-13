@@ -116,7 +116,8 @@ struct AboutView: View {
                 JJ — for Jarke Jan — unfolds the Earth along its coastlines, rivers, plates, timezones, borders, \
                 crowds, air routes, winds, rain and the line between day and night; unfolds the Moon and Mars along \
                 their craters and the shores of vanished seas; and redraws the figures of the paper on today's GPUs, \
-                at sixty frames a second.
+                at sixty frames a second. And since every one of these maps is a polyhedron cut open, any of them \
+                closes again by hand: print it as a paper globe (⌘P), cut, fold and glue.
                 """)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 3) {
