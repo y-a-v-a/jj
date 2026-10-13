@@ -1,1 +1,11 @@
-CAJ103.pdf
+.DS_Store
+*.xcodeproj
+/.build
+/.swiftpm
+/data/raw
+/dist
+/out
+/Packages
+DerivedData/
+xcuserdata/
+/Tests/MyriaRenderTests/Output
