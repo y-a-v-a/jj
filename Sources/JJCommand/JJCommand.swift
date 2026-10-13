@@ -48,7 +48,9 @@ struct MapOptions: ParsableArguments {
     }
 
     /// - Parameter defaultMesh: the mesh when none is given, if not the layout's own.
-    func build(_ engine: MapEngine, defaultMesh: (LayoutDescriptor) -> MeshKind? = { _ in nil }) throws -> MapState {
+    /// - Parameter adjust: a last say over the parameters given.
+    func build(_ engine: MapEngine, adjust: (LayoutParameters, LayoutDescriptor) -> LayoutParameters = { p, _ in p },
+               defaultMesh: (LayoutDescriptor) -> MeshKind? = { _ in nil }) throws -> MapState {
         guard let layout = LayoutCatalog.layout(id: layout) else {
             throw ValidationError("unknown layout \(self.layout); try `jj layouts`")
         }
@@ -66,7 +68,7 @@ struct MapOptions: ParsableArguments {
             guard let k = MeshKind(argument: m) else { throw ValidationError("bad mesh \(m)") }
             return k
         } ?? defaultMesh(layout.descriptor) ?? layout.descriptor.preferredMesh
-        return try engine.build(layout, parameters: parameters, mesh: MeshSpec(kind))
+        return try engine.build(layout, parameters: adjust(parameters, layout.descriptor), mesh: MeshSpec(kind))
     }
 }
 
@@ -98,7 +100,9 @@ struct Paper: ParsableCommand {
         guard let sheet = PaperNet.Paper(rawValue: paper) else { throw ValidationError("bad paper \(paper)") }
         guard let palette = Palette.named(palette) else { throw ValidationError("unknown palette") }
         let start = Date()
-        let state = try map.build(try map.engine()) { PaperGlobe.mesh(for: $0, detail: detail) }
+        let state = try map.build(try map.engine(), adjust: { PaperGlobe.parameters($0, for: $1, detail: detail) }) {
+            PaperGlobe.mesh(for: $0, detail: detail)
+        }
         let renderer = try MapRenderer()
         let settings = MapExport.settings(for: state, palette: palette, dark: false, width: 1000, height: 1000,
                                           date: try map.resolvedDate())

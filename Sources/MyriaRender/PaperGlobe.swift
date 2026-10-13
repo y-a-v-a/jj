@@ -34,6 +34,28 @@ public enum PaperGlobe {
         }
     }
 
+    /// Parameters for the paper: layouts that subdivide their own solid
+    /// subdivide it only as far as hands can fold (80, 320 or 1280 faces).
+    public static func parameters(_ parameters: LayoutParameters, for descriptor: LayoutDescriptor,
+                                  detail: Detail) -> LayoutParameters {
+        var p = parameters
+        if descriptor.parameter("levels") != nil { p["levels"] = Double(Detail.allCases.firstIndex(of: detail)! + 1) }
+        return p
+    }
+
+    /// More faces than anyone would cut out.
+    public static let maximumFaces = 6000
+
+    public enum Failure: Error, CustomStringConvertible {
+        case tooManyFaces(Int)
+
+        public var description: String {
+            switch self {
+            case .tooManyFaces(let n): "\(n.formatted()) faces are too many to cut out; choose a coarser myriahedron (at most \(maximumFaces.formatted()))"
+            }
+        }
+    }
+
     public struct Result: Sendable {
         public let net: PaperNet
         public let pdf: Data
@@ -46,6 +68,7 @@ public enum PaperGlobe {
     ///   - dpi: resolution of the map imagery, lowered for very large globes.
     public static func make(_ state: MapState, options: PaperNet.Options, renderer: MapRenderer, settings: FrameSettings,
                             title: String, dpi: Double = 300) throws -> Result {
+        guard state.mesh.faceCount <= maximumFaces else { throw Failure.tooManyFaces(state.mesh.faceCount) }
         let net = try PaperNet(projection: state.projection, options: options)
         let tiles = try imagery(state, net: net, renderer: renderer, settings: settings, dpi: dpi)
         let pdf = try draw(net, state: state, tiles: tiles, title: title)

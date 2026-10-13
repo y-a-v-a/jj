@@ -38,7 +38,7 @@ struct PaperSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Form {
-                    if PaperGlobe.mesh(for: d, detail: detail) != nil {
+                    if PaperGlobe.mesh(for: d, detail: detail) != nil || d.parameter("levels") != nil {
                         Picker("Faces", selection: $detail) {
                             ForEach(PaperGlobe.Detail.allCases, id: \.self) { Text($0.title).tag($0) }
                         }
@@ -141,7 +141,8 @@ struct PaperSheet: View {
     private func job() -> Job? {
         let d = model.descriptor
         let options = PaperNet.Options(sheet: paper.size, diameter: diameter * 10)
-        return Job(engine: model.engine, layout: model.layout, parameters: model.parameters,
+        return Job(engine: model.engine, layout: model.layout,
+                   parameters: PaperGlobe.parameters(model.parameters, for: d, detail: detail),
                    mesh: PaperGlobe.mesh(for: d, detail: detail) ?? model.meshKind, options: options, palette: model.palette,
                    coloring: model.coloringOverride, layers: model.layers.subtracting([.labels, .flights, .mesh, .cuts]),
                    date: model.date, title: d.title)
