@@ -45,10 +45,11 @@ struct ContentView: View {
         .onAppear {
             model.isDark = colorScheme == .dark
             model.start()
-            // For demos and checks: -showSettings YES, -showAbout YES.
+            // For demos and checks: -showSettings YES, -showAbout YES, -showLicences YES.
             if UserDefaults.standard.bool(forKey: "showSettings") { openSettings() }
             if UserDefaults.standard.bool(forKey: "showAbout") { openWindow(id: "about") }
             if UserDefaults.standard.bool(forKey: "showHelp") { openWindow(id: "help") }
+            if UserDefaults.standard.bool(forKey: "showLicences") { openWindow(id: "licences") }
         }
         .onChange(of: colorScheme) {
             model.isDark = colorScheme == .dark

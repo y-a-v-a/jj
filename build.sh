@@ -45,6 +45,7 @@ echo "▸ Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/JJApp" "$APP/Contents/MacOS/JJ"
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 # Data files are looked up in the app's resources first.
 for world in Earth Moon Mars Venus; do
   cp -R "Sources/MyriaData/Resources/$world" "$APP/Contents/Resources/$world"
@@ -83,7 +84,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-  <key>NSHumanReadableCopyright</key><string>A homage to Jarke J. van Wijk's myriahedral projections. Data: Natural Earth, OpenStreetMap contributors (ODbL), PB2002, OpenFlights (ODbL), GPCP, NCEP/NCAR, ETOPO1.</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Vincent Bruijn. MIT License. Made with Claude, a homage to Jarke J. van Wijk. Data: Natural Earth, OpenStreetMap contributors (ODbL), PB2002, OpenFlights (ODbL), GPCP, NCEP/NCAR, ETOPO1, NASA PDS, USGS Astrogeology.</string>
 </dict>
 </plist>
 PLIST

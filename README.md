@@ -38,7 +38,7 @@ conserve areas. Their gaps show, in plain sight, the distortion every
 uninterrupted map hides.
 
 JJ ("Jarke Jan") takes that machinery and asks what else the cuts can say.
-In [myriamap](../myriamap), its predecessor, the seams followed the
+In [myriamap](https://github.com/y-a-v-a/myriamap), its predecessor, the seams followed the
 timezones. In JJ, timezones are one layout among twenty-six. The planet
 comes apart along its coastlines, rivers, plates, ocean middles and
 waterlines. The human world comes apart along nations, crowds and air
@@ -343,6 +343,33 @@ prepared off the main thread.
 | `Sources/JJApp` | the SwiftUI app |
 | `Sources/JJCommand` | `jj`, the command-line tool |
 | `Sources/JJDataPrep` | `jj-data`, which downloads and prepares the data (`scripts/prepare-data.sh`) |
+
+## Credits
+
+- **The idea:** Jarke J. van Wijk, *Unfolding the Earth: Myriahedral
+  Projections* (2008); see [Sources](#sources).
+- **Made by Vincent Bruijn and Claude.** Claude (Opus 5.5, by Anthropic)
+  wrote JJ in Claude Code over one night in October 2026, from Vincent
+  Bruijn's brief and on the groundwork of Vincent Bruijn's
+  [myriamap](https://github.com/y-a-v-a/myriamap), which unfolds the Earth
+  along its timezones.
+- **Polygon triangulation:** a Swift port of Mapbox's
+  [earcut](https://github.com/mapbox/earcut).
+- **Data:** the sources below, and everyone who made them.
+
+## Licence
+
+JJ is released under the [MIT License](LICENSE), © 2026 Vincent Bruijn.
+Two parts keep their own terms:
+
+- `Sources/MyriaCore/Earcut.swift`, the port of earcut, is under earcut's
+  ISC licence, quoted at its top.
+- The data in `Sources/MyriaData/Resources` keep their sources' licences,
+  listed below: what comes from OpenStreetMap (the timezones) and from
+  OpenFlights is under the ODbL, the plates are under ODC-BY, and the rest
+  is public domain.
+
+The app shows all three under About JJ → Licences….
 
 ## Data and licences
 

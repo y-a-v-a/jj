@@ -93,6 +93,14 @@ struct PaletteCard: View {
 
 /// About JJ: a homage.
 struct AboutView: View {
+    @Environment(\.openWindow) private var openWindow
+
+    /// "Version 1.0.0 (53)" in an assembled app; nothing when run from the package.
+    private var version: String? {
+        guard let info = Bundle.main.infoDictionary, let short = info["CFBundleShortVersionString"] as? String else { return nil }
+        return (info["CFBundleVersion"] as? String).map { "Version \(short) (\($0))" } ?? "Version \(short)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -101,6 +109,9 @@ struct AboutView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("JJ").font(.largeTitle.weight(.semibold))
                     Text("Myriahedral maps of the Earth, the Moon, Mars and Venus").font(.title3).foregroundStyle(.secondary)
+                    if let version {
+                        Text(version).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             Text("A homage to Jarke J. van Wijk")
@@ -127,9 +138,26 @@ struct AboutView: View {
             }
             .font(.callout)
             Divider()
-            Text(CelestialBody.all.flatMap { $0.datasets.map(\.attribution) }.reduce(into: [String]()) { list, a in
-                if !list.contains(a) { list.append(a) }
-            }.joined(separator: " · "))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Made by Vincent Bruijn and Claude").font(.headline)
+                Text("""
+                    Claude (Opus 5.5, by Anthropic) wrote JJ in Claude Code over one night in October 2026, \
+                    from Vincent Bruijn's brief and on the groundwork of Vincent Bruijn's myriamap.
+                    """)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 14) {
+                    Link("github.com/y-a-v-a/jj", destination: URL(string: "https://github.com/y-a-v-a/jj")!)
+                    Link("myriamap", destination: URL(string: "https://github.com/y-a-v-a/myriamap")!)
+                }
+                HStack(spacing: 6) {
+                    Text("© 2026 Vincent Bruijn. Released under the MIT License.")
+                    Button("Licences…") { openWindow(id: "licences") }
+                        .buttonStyle(.link)
+                }
+                .padding(.top, 4)
+            }
+            .font(.callout)
+            Text(Licences.data.joined(separator: " · "))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -82,6 +82,10 @@ struct JJApp: App {
             AboutView()
         }
         .windowResizability(.contentSize)
+        Window("Licences", id: "licences") {
+            LicencesView()
+        }
+        .windowResizability(.contentSize)
         Window("JJ Help", id: "help") {
             HelpView()
         }
