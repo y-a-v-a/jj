@@ -9,3 +9,5 @@
 DerivedData/
 xcuserdata/
 /Tests/MyriaRenderTests/Output
+# The paper itself (copyright its publisher); see Sources in the README.
+/CAJ103.pdf

@@ -5,6 +5,7 @@
 #   ./release.sh              signed, notarized and stapled dist/JJ.zip
 #   ./release.sh --publish    also create the GitHub release v<version> with the zip
 #   ./release.sh --sign-only  signed with the hardened runtime, not notarized
+#                             (with --publish: a release that says so)
 #
 # Notarizing needs a notarytool keychain profile for the signing team. To
 # create one (with an app-specific password from https://account.apple.com):
@@ -27,14 +28,10 @@ for arg in "$@"; do
   case "$arg" in
     --publish) PUBLISH=1 ;;
     --sign-only) NOTARIZE=0 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
-if [[ $PUBLISH == 1 && $NOTARIZE == 0 ]]; then
-  echo "Only notarized builds are published; drop --sign-only." >&2
-  exit 64
-fi
 if [[ $PUBLISH == 1 && -n "$(git status --porcelain)" ]]; then
   echo "The working tree has uncommitted changes; commit them before publishing a release." >&2
   exit 1
@@ -92,7 +89,12 @@ fi
 echo "  $ZIP"
 
 if [[ $PUBLISH == 1 ]]; then
+  NOTES="Download \`JJ.zip\`, unzip it and move \`JJ.app\` to /Applications. One app for Apple silicon and Intel Macs, macOS 15 or later."
+  if [[ $NOTARIZE == 1 ]]; then
+    NOTES+=" Signed with a Developer ID and notarized by Apple."
+  else
+    NOTES+=$'\n\n'"Signed with a Developer ID but not notarized, so macOS stops it the first time: open it once, then choose *Open Anyway* under System Settings → Privacy & Security. Or clear the quarantine flag: \`xattr -dr com.apple.quarantine /Applications/JJ.app\`."
+  fi
   gh release create "v$VERSION" "$ZIP" --target "$(git rev-parse HEAD)" --title "JJ $VERSION" \
-    --notes "Download \`JJ.zip\`, unzip it and move \`JJ.app\` to /Applications. One app for Apple silicon and Intel Macs, macOS 15 or later. Signed with a Developer ID and notarized by Apple." \
-    --generate-notes
+    --notes "$NOTES" --generate-notes
 fi

@@ -16,8 +16,12 @@ of the Moon, Mars and Venus. A homage to Jarke J. van Wijk.
 
 Download `JJ.zip` from the [latest release](https://github.com/y-a-v-a/jj/releases/latest),
 unzip it and move `JJ.app` to `/Applications`. It runs on Apple silicon and
-Intel Macs with macOS 15 or later, and is signed with a Developer ID and
-notarized by Apple, so it opens without warnings.
+Intel Macs with macOS 15 or later.
+
+The app is signed with a Developer ID but not notarized yet, so macOS stops
+it the first time. Open it once, then choose *Open Anyway* under System
+Settings → Privacy & Security; or clear the download's quarantine flag with
+`xattr -dr com.apple.quarantine /Applications/JJ.app`.
 
 ## The idea
 
@@ -201,6 +205,7 @@ Releases are signed with a Developer ID and notarized:
 ```sh
 ./release.sh            # dist/JJ.zip: universal, signed, notarized and stapled
 ./release.sh --publish  # also creates the GitHub release v<version> with the zip
+./release.sh --sign-only --publish  # signed, not notarized
 ```
 
 Notarizing uses the notarytool keychain profile in `NOTARY_PROFILE`
@@ -354,5 +359,7 @@ See `Sources/MyriaData/Resources/*/SOURCES.md`. In short:
 
 - https://vanwijk.win.tue.nl/myriahedral/
 - Jarke J. van Wijk, *Unfolding the Earth: Myriahedral Projections*,
-  The Cartographic Journal 45(1), 32–42, 2008 (`CAJ103.pdf`). Henry Johns
-  Award 2009.
+  The Cartographic Journal 45(1), 32–42, 2008,
+  [doi:10.1179/000870408X276594](https://doi.org/10.1179/000870408X276594)
+  ([PDF on van Wijk's page](https://vanwijk.win.tue.nl/myriahedral/CAJ103.pdf)).
+  Henry Johns Award 2009.
