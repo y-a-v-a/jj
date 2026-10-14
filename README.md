@@ -18,10 +18,8 @@ Download `JJ.zip` from the [latest release](https://github.com/y-a-v-a/jj/releas
 unzip it and move `JJ.app` to `/Applications`. It runs on Apple silicon and
 Intel Macs with macOS 15 or later.
 
-The app is signed with a Developer ID but not notarized yet, so macOS stops
-it the first time. Open it once, then choose *Open Anyway* under System
-Settings → Privacy & Security; or clear the download's quarantine flag with
-`xattr -dr com.apple.quarantine /Applications/JJ.app`.
+The app is signed with a Developer ID and notarized by Apple, so it opens
+without warnings.
 
 ## The idea
 
