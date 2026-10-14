@@ -12,6 +12,13 @@ of the Moon, Mars and Venus. A homage to Jarke J. van Wijk.
 > explore what happens when this naive approach is pursued."*
 > — Jarke J. van Wijk, *Unfolding the Earth: Myriahedral Projections*, 2008
 
+## Install
+
+Download `JJ.zip` from the [latest release](https://github.com/y-a-v-a/jj/releases/latest),
+unzip it and move `JJ.app` to `/Applications`. It runs on Apple silicon and
+Intel Macs with macOS 15 or later, and is signed with a Developer ID and
+notarized by Apple, so it opens without warnings.
+
 ## The idea
 
 Van Wijk projects the globe onto a *myriahedron*, a polyhedron with a
@@ -185,8 +192,20 @@ Everything needed comes with Xcode's command line tools.
 ./build.sh            # release build of dist/JJ.app (icon drawn by jj itself)
 ./build.sh --run      # … and open it
 ./build.sh --test     # run the tests first
+./build.sh --universal  # one app for Apple silicon and Intel Macs
 swift run JJApp       # or straight from the package
 ```
+
+Releases are signed with a Developer ID and notarized:
+
+```sh
+./release.sh            # dist/JJ.zip: universal, signed, notarized and stapled
+./release.sh --publish  # also creates the GitHub release v<version> with the zip
+```
+
+Notarizing uses the notarytool keychain profile in `NOTARY_PROFILE`
+(default `mould-notary`); the top of `release.sh` shows how to create one.
+`JJ_VERSION` sets the version, which otherwise follows the latest `v*` tag.
 
 The command-line tool renders any layout headless:
 

@@ -361,6 +361,12 @@ public enum ResourceLocator {
             let candidate = base.appendingPathComponent(folder).appendingPathComponent(file)
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         }
+        // An assembled app carries its data itself. `Bundle.module` would
+        // look for the build folder it came from and stop the app if that
+        // isn't there, as on any other Mac.
+        guard Bundle.main.bundleURL.pathExtension != "app" else {
+            throw BodyDataError.missingResource("\(folder)/\(file)")
+        }
         if let base = Bundle.module.resourceURL {
             let candidate = base.appendingPathComponent(folder).appendingPathComponent(file)
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate }

@@ -5,6 +5,9 @@
 #   ./build.sh --run      build, then open the app
 #   ./build.sh --debug    debug build (faster to compile, slower to run)
 #   ./build.sh --test     run the test suite first
+#   ./build.sh --universal  one app for Apple silicon and Intel Macs
+#
+# JJ_VERSION sets the version (default: the latest v* tag, else 1.0.0).
 #
 # Needs the Xcode command line tools (swift, sips, iconutil, codesign).
 set -euo pipefail
@@ -15,12 +18,14 @@ cd "$ROOT"
 CONFIG=release
 RUN=0
 TEST=0
+ARCHS=()
 for arg in "$@"; do
   case "$arg" in
     --run) RUN=1 ;;
     --debug) CONFIG=debug ;;
     --test) TEST=1 ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --universal) ARCHS=(--arch arm64 --arch x86_64) ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
@@ -30,10 +35,10 @@ if [[ $TEST == 1 ]]; then
   swift test
 fi
 
-echo "▸ Building ($CONFIG)"
-swift build -c "$CONFIG" --product JJApp
-swift build -c "$CONFIG" --product jj
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+echo "▸ Building ($CONFIG${ARCHS[@]+, universal})"
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product JJApp
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product jj
+BIN="$(swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)"
 
 APP="$ROOT/dist/JJ.app"
 echo "▸ Assembling $APP"
@@ -57,7 +62,10 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 
-VERSION="$(git describe --tags --always 2>/dev/null || echo 1.0)"
+TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+VERSION="${JJ_VERSION:-${TAG#v}}"
+VERSION="${VERSION:-1.0.0}"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,8 +76,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>app.jj.myriahedral</string>
   <key>CFBundleExecutable</key><string>JJ</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>${VERSION}</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.education</string>

@@ -1,3 +1,4 @@
+import Accelerate
 import CoreGraphics
 import Foundation
 import Metal
@@ -438,7 +439,19 @@ public final class MapRenderer {
         // Unified memory shares; discrete GPUs (Intel Macs) need managed storage.
         d.storageMode = device.hasUnifiedMemory ? .shared : .managed
         guard let t = device.makeTexture(descriptor: d) else { return nil }
-        let halves = field.values.map { Float16($0) }
+        // To half floats with vImage: Swift has no Float16 on Intel Macs.
+        var halves = [UInt16](repeating: 0, count: field.values.count)
+        var converted = false
+        field.values.withUnsafeBufferPointer { values in
+            halves.withUnsafeMutableBufferPointer { out in
+                var source = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: values.baseAddress!),
+                                           height: 1, width: vImagePixelCount(values.count), rowBytes: values.count * 4)
+                var target = vImage_Buffer(data: out.baseAddress!, height: 1, width: vImagePixelCount(out.count),
+                                           rowBytes: out.count * 2)
+                converted = vImageConvert_PlanarFtoPlanar16F(&source, &target, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+            }
+        }
+        guard converted else { return nil }
         halves.withUnsafeBytes {
             t.replace(region: MTLRegionMake2D(0, 0, field.width, field.height), mipmapLevel: 0,
                       withBytes: $0.baseAddress!, bytesPerRow: field.width * 2)
