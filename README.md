@@ -52,7 +52,7 @@ night. And all of van Wijk's own figures are redrawn, live, on today's GPUs.
 | **The planet** | Coastlines | the shore: every land mass and each of the five oceans is its own piece |
 | | Mid-Ocean | the ridges of the great-circle distance to the coast: the exact middles of the oceans (Point Nemo lies on a seam) |
 | | Tectonic Plates | Peter Bird's 52 plate boundaries, drawn as ridges, trenches and transform faults |
-| | Rivers | the great rivers: every river parts its left bank from its right |
+| | Rivers | the great rivers, from source to sea: each opens toward its mouth by the curvature of the land that drains into it |
 | **People** | Timezones | the borders between clocks, with a live clock in every zone (myriamap's map) |
 | | Nations | international borders; the open sea in 30° sectors |
 | | Population | the empty places: the crowds stay whole |
@@ -252,7 +252,11 @@ swift build -c release --product jj
    tree. Region layouts (coastlines, plates, timezones, nations, rivers) use
    a region tree generalised from myriamap: polyconic strips inside each
    region, joined across borders by one hinge each, chosen near the equator
-   and so that every piece hangs upright.
+   and so that every piece hangs upright. Rivers keeps each land mass whole
+   and weighs its edges by the distance to the nearest river instead, so the
+   hinges hold along the divides; every river is cut from its source to the
+   sea and hangs from its own mouth, which opens it by the curvature of its
+   whole basin.
 4. **Unfolding and folding.** A breadth-first walk over the hinges composes
    2D rigid motions, so hinged edges coincide exactly. Folding composes 3D
    hinge rotations, each closing by the same fraction of its dihedral angle

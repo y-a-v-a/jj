@@ -136,6 +136,13 @@ public struct MidOceanLayout: Layout {
 }
 
 /// The world's great rivers become seams of the map.
+///
+/// Van Wijk's recipe with a river's weights: each edge on land weighs its
+/// distance to the nearest river, so hinges hold along the divides between
+/// rivers and the cuts run down the rivers themselves. A cut opens by the
+/// curvature of the land that hangs from it, so a river must stay cut from
+/// its source all the way to the sea, never hinged across, and hang from its
+/// own mouth: then it opens by the curvature of its whole basin.
 public struct RiverLayout: Layout {
     public init() {}
 
@@ -143,79 +150,185 @@ public struct RiverLayout: Layout {
         LayoutDescriptor(
             id: "rivers", title: "Rivers",
             summary: "Every great river parts its left bank from its right",
-            story: "Each piece of land belongs to the nearest great river, on the bank it lies on. So every river becomes a seam between its two banks: the Amazon, the Mississippi, the Nile, the Congo, the Yangtze and the Ob open up, and the lands between them hang from an equatorial belt beside the oceans. Land far from any great river keeps to its coast.",
+            story: "Each edge on land weighs its distance to the nearest great river, so the hinges hold along the divides between rivers and the map is cut down the rivers themselves, from their sources to the sea. Each bank hangs from its divide, and a river opens as wide as the curvature of the land that drains into it: the Amazon, the Nile, the Congo and the Ob gape at their mouths, their tributaries open in turn, and the continents stay whole around them. Land and sea part along the shore.",
             symbol: "point.topleft.down.to.point.bottomright.curvepath", category: .planet,
             parameters: [
                 centerParameter,
                 .slider("rank", "River detail", 1...8, step: 1, default: 4,
                         help: "Natural Earth scale rank: 1 keeps only the largest rivers"),
-                .slider("reach", "Reach", 200...1500, step: 50, unit: " km", default: 700,
-                        help: "How far from a river its banks extend"),
             ],
             preferredMesh: .graticule(step: 1), requires: [.land, .rivers])
     }
 
-    /// Points along the rivers with the direction of flow and the river.
-    struct RiverPoints: Sendable {
-        let index: PointIndex
-        let tangents: [Vec3]
-        let rivers: [Int]
-    }
-
     public func cut(_ context: LayoutContext, parameters p: LayoutParameters) throws -> LayoutCut {
         let rank = Int(p.value("rank", default: 4))
-        let reach = p.value("reach", default: 700) / context.data.body.radius
-        let rivers = try context.data.lines(.rivers)
-        let points = try context.data.cached("riverPoints:\(rank)") { () -> RiverPoints in
-            var points: [Vec3] = [], tangents: [Vec3] = [], ids: [Int] = []
-            for (r, line) in rivers.lines.enumerated() where line.attribute <= rank {
-                let v = line.points.map(\.unitVector)
-                for i in 0..<(v.count - 1) {
-                    let a = v[i], b = v[i + 1]
-                    let n = max(1, Int((a.angle(to: b) / 0.004).rounded(.up)))
-                    let t = (b - a).normalized
-                    for k in 0..<n {
-                        points.append(Spherical.slerp(a, b, Double(k) / Double(n)))
-                        tangents.append(t)
-                        ids.append(r)
+        let center = p.value("center", default: 10)
+        let (labels, land) = try landAndSeaLabels(context, minimum: 6)
+        // Seas around a pole hang in sectors; land needs no such help, since
+        // its rivers open it up.
+        let polar = RegionTree.splittingPolarCaps(labels, context: context)
+        let groups = labels.indices.map { land[$0] ? labels[$0] : polar[$0] }
+        let tree = RegionTree(centerLongitude: center)
+        let water = try waterDistance(context, rank: rank)
+        let seams = try riverSeams(context, rank: rank, land: land)
+        let crossings = context.cached("straits") { straits(context, land: land) }
+        let strips = tree.stripWeights(context, faceGroups: groups)
+        let tie = order(context, center: center, strength: 0.002)
+        let edges = context.mesh.topology.edges
+        let interior = edges.indices.map { e -> Double in
+            guard land[edges[e].leftFace] && land[edges[e].rightFace] else { return strips[e] }
+            let (river, coast) = water[e]
+            // Seams are always cut. Where rivers close a loop (a delta, the
+            // Casiquiare between the Amazon and the Orinoco) the seam far
+            // from the sea gives way, so that every river hangs from its mouth.
+            if seams[e] || crossings[e] { return coast / 1000 - 10 }
+            // The coast holds only land much nearer to it than to a river,
+            // and a gentle slope down to the sea makes a river's way to the
+            // coast through its mouth cheaper than through its source.
+            return (min(river, 3 * coast) + coast / 4) / 1000 + tie[e]
+        }
+        let root = Weights.root(context, longitude: center)
+        let hinges = tree.hinges(context, faceGroups: groups, root: root, interior: interior, avoid: seams)
+        let landPieces = Set(labels.indices.filter { land[$0] }.map { labels[$0] }).count
+        return LayoutCut(hinges: hinges, root: root, faceGroups: land.map { $0 ? 1 : 0 }, groupNames: ["Sea", "Land"],
+                         notes: ["\(landPieces) land masses"])
+    }
+
+    /// Per edge, kilometres from its midpoint to the nearest river of rank
+    /// `rank` or less, and to the coast.
+    func waterDistance(_ context: LayoutContext, rank: Int) throws -> [(river: Double, coast: Double)] {
+        try context.cached("waterDistance:\(rank)") {
+            let rivers = try riverIndex(context.data, rank: rank)
+            let coast = try coastIndex(context.data)
+            let edges = context.edges, radius = context.data.body.radius
+            return parallelMap(edges.count) { e in
+                let m = edges[e].midpoint
+                return ((rivers.nearest(to: m)?.distance ?? .infinity) * radius, (coast.distance(to: m) ?? .infinity) * radius)
+            }
+        }
+    }
+
+    /// Per edge, whether a river runs between the centres of its two faces:
+    /// the edges that part one bank from the other. A river crossing the arc
+    /// between two face centres passes from one corner's side of their edge
+    /// to the other's, so a river's seam edges always join up into one path.
+    /// At its mouth the path goes on to the nearest face of sea, to meet the
+    /// coast's own cut where the mesh draws a coarser shore.
+    func riverSeams(_ context: LayoutContext, rank: Int, land: [Bool]) throws -> [Bool] {
+        try context.cached("riverSeams:\(rank)") {
+            let mesh = context.mesh, centers = context.faceCenters
+            let typical = (4 * Double.pi / Double(mesh.faceCount)).squareRoot()
+            let step = min(0.004, typical / 4)
+            let coast = try coastIndex(context.data)
+            /// The face of sea fewest steps away, if one is near.
+            func nearestSea(from p: Vec3) -> Int? {
+                var ring = [mesh.face(containing: p)], seen = Set(ring)
+                for _ in 0..<6 {
+                    if let sea = ring.filter({ !land[$0] }).min(by: { centers[$0].angle(to: p) < centers[$1].angle(to: p) }) {
+                        return centers[sea].angle(to: p) < 4 * typical ? sea : nil
+                    }
+                    ring = ring.flatMap { mesh.topology.neighbors(of: $0) }.filter { seen.insert($0).inserted }
+                }
+                return nil
+            }
+            var seams = Array(repeating: false, count: mesh.edgeCount)
+            for line in try context.data.lines(.rivers).lines where line.attribute <= rank {
+                var points = line.points.map(\.unitVector)
+                // The mouth is the end nearer the sea, if the sea is near.
+                let ends = [points[0], points[points.count - 1]].map { coast.distance(to: $0) ?? .infinity }
+                if min(ends[0], ends[1]) < 1.5 * typical {
+                    if ends[0] < ends[1] { points.reverse() }
+                    if let sea = nearestSea(from: points[points.count - 1]) { points.append(centers[sea]) }
+                }
+                for (u, v) in zip(points, points.dropFirst()) {
+                    let n = max(1, Int((u.angle(to: v) / step).rounded(.up)))
+                    var a = u
+                    for k in 1...n {
+                        let b = Spherical.slerp(u, v, Double(k) / Double(n))
+                        let across = a.cross(b)
+                        var faces = [mesh.face(containing: a), mesh.face(containing: b)]
+                        if faces[0] != faces[1] { faces.append(mesh.face(containing: (a + b).normalized)) }
+                        for f in Set(faces) {
+                            for e in mesh.topology.faceEdges[f] where !seams[e] {
+                                let c = centers[mesh.topology.edges[e].leftFace], d = centers[mesh.topology.edges[e].rightFace]
+                                let between = c.cross(d)
+                                seams[e] = c.dot(across) * d.dot(across) < 0 && a.dot(between) * b.dot(between) < 0
+                            }
+                        }
+                        a = b
                     }
                 }
             }
-            return RiverPoints(index: PointIndex(points), tangents: tangents, rivers: ids)
+            return seams
         }
-        let (coastLabels, land) = try landAndSeaLabels(context, minimum: 6)
-        let centers = context.faceCenters
-        let baseCount = (coastLabels.max() ?? 0) + 1
-        // Land: the nearest river and the bank it is on, within reach.
-        var labels = coastLabels.indices.map { f -> Int in
-            guard land[f], let (i, d) = points.index.nearest(to: centers[f]), d < reach else { return coastLabels[f] }
-            let q = points.index.points[i]
-            let side = points.tangents[i].cross(centers[f] - q).dot(q) > 0 ? 1 : 0
-            return baseCount + points.rivers[i] * 2 + side
-        }
-        // Banks split by the sea or by other banks become separate pieces;
-        // crumbs join a neighbour.
-        labels = context.components(of: labels)
-        var sizes = [Int: Int]()
-        for l in labels { sizes[l, default: 0] += 1 }
-        for _ in 0..<6 {
-            for f in labels.indices where sizes[labels[f]]! < 6 {
-                if let g = context.mesh.topology.neighbors(of: f).first(where: { land[$0] == land[f] && sizes[labels[$0]]! >= 6 }) {
-                    labels[f] = labels[g]
+    }
+
+    /// Seas the mesh closes off (the Mediterranean behind Gibraltar, the
+    /// Black Sea behind the Bosporus) reach other sea by a cut across their
+    /// strait: the shortest way over land, if it is a few edges long.
+    /// Otherwise the curvature of all the land hanging from such a sea's
+    /// shore would have to leave it along some river, and tear a continent.
+    func straits(_ context: LayoutContext, land: [Bool]) -> [Bool] {
+        let mesh = context.mesh, topology = mesh.topology
+        let vertexCount = mesh.polyhedron.vertexCount
+        let pieces = context.components(of: land.map { $0 ? -1 : 0 })
+        var sizes: [Int: Int] = [:]
+        for f in pieces.indices where !land[f] { sizes[pieces[f], default: 0] += 1 }
+        var cut = Array(repeating: false, count: mesh.edgeCount)
+        guard let ocean = sizes.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) })?.key else { return cut }
+        // The seas each vertex touches.
+        var seas = Array(repeating: Set<Int>(), count: vertexCount)
+        for (f, face) in mesh.polyhedron.faces.enumerated() where !land[f] { for v in face { seas[v].insert(pieces[f]) } }
+        for sea in sizes.keys.sorted() where sea != ocean {
+            // Breadth first over land from the sea's shore, three edges deep.
+            var from = Array(repeating: -2, count: vertexCount)
+            var level = (0..<vertexCount).filter { seas[$0].contains(sea) }
+            for v in level { from[v] = -1 }
+            search: for _ in 0..<3 {
+                var next: [Int] = []
+                for v in level {
+                    for e in topology.vertexEdges[v] where land[topology.edges[e].leftFace] && land[topology.edges[e].rightFace] {
+                        let w = topology.edges[e].a == v ? topology.edges[e].b : topology.edges[e].a
+                        guard from[w] == -2 else { continue }
+                        from[w] = e
+                        if seas[w].contains(where: { $0 != sea }) {
+                            var x = w
+                            while from[x] >= 0 {
+                                let e = from[x]
+                                cut[e] = true
+                                x = topology.edges[e].a == x ? topology.edges[e].b : topology.edges[e].a
+                            }
+                            break search
+                        }
+                        next.append(w)
+                    }
                 }
+                level = next
             }
-            sizes = [:]
-            for l in labels { sizes[l, default: 0] += 1 }
         }
-        let center = p.value("center", default: 10)
-        let root = Weights.root(context, longitude: center)
-        // Banks should not be hinged across their river, or the seam closes.
-        let crossed = context.cached("rivers:\(rank)") { context.edgesCrossed(by: rivers.segments) { $0 <= Int32(rank) } }
-        let hinges = RegionTree(centerLongitude: center)
-            .hinges(context, faceGroups: RegionTree.splittingPolarCaps(labels, context: context), root: root, avoid: crossed)
-        let landPieces = Set(labels.indices.filter { land[$0] }.map { labels[$0] }).count
-        return LayoutCut(hinges: hinges, root: root, faceGroups: land.map { $0 ? 1 : 0 }, groupNames: ["Sea", "Land"],
-                         notes: ["\(landPieces) pieces of land"])
+        return cut
+    }
+
+    /// Points every 25 km along the rivers of rank `rank` or less.
+    func riverIndex(_ data: BodyData, rank: Int) throws -> PointIndex {
+        let rivers = try data.lines(.rivers)
+        return try data.cached("riverIndex:\(rank)") {
+            var points: [Vec3] = []
+            for line in rivers.lines where line.attribute <= rank {
+                let v = line.points.map(\.unitVector)
+                for (a, b) in zip(v, v.dropFirst()) {
+                    let n = max(1, Int((a.angle(to: b) / 0.004).rounded(.up)))
+                    for k in 0..<n { points.append(Spherical.slerp(a, b, Double(k) / Double(n))) }
+                }
+                points.append(v[v.count - 1])
+            }
+            return PointIndex(points)
+        }
+    }
+
+    func coastIndex(_ data: BodyData) throws -> CoastIndex {
+        let land = try data.land()
+        return try data.cached("index:coast") { CoastIndex(land: land) }
     }
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
