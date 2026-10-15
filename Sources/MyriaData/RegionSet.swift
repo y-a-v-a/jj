@@ -89,17 +89,27 @@ public struct LandMask: Sendable {
     public let coastlines: SegmentLayer
     /// The land rings in (longitude, latitude), outer rings counter-clockwise.
     public let rings: [[Vec2]]
+    /// The outer rings with their bounds.
+    let outerRings: [(ring: [Vec2], bounds: Rect2)]
 
     public init(features: [GeoFeature], tileSize: Double = 5) {
         let all = features.flatMap(\.polygons)
         polygons = PolygonLayer(features: [all], tileSize: tileSize)
         rings = all.flatMap { $0.rings.map(GeoPolygon.planar) }
+        outerRings = all.compactMap { $0.rings.first.map(GeoPolygon.planar) }.map { ($0, Rect2(bounding: $0)) }
         coastlines = SegmentLayer(
             polylines: SegmentLayer.polylines(fromRings: rings) { !SegmentLayer.isArtificial($0, $1) },
             tileSize: tileSize)
     }
 
     public func isLand(_ p: GeoPoint) -> Bool { polygons.feature(at: p) != nil }
+
+    /// Whether water at `p` is cut off from the ocean, lying within a land
+    /// polygon's outer ring: the Caspian Sea, not the Black Sea.
+    public func isEnclosed(_ p: GeoPoint) -> Bool {
+        let q = Vec2(p.longitude, p.latitude)
+        return outerRings.contains { $0.bounds.contains(q) && Planar.contains($0.ring, q) }
+    }
 }
 
 /// Polylines with an integer attribute each: rivers (rank), plate

@@ -149,7 +149,7 @@ struct RiverTests {
     /// The Mediterranean and the Black Sea are closed off at these
     /// resolutions. Unless they reach the ocean across their straits, all the
     /// land hanging from their shores tears Europe open along the Danube.
-    @Test(arguments: [MeshKind.graticule(step: 1), .geodesic(frequency: 32)])
+    @Test(arguments: [MeshKind.graticule(step: 1), .graticule(step: 2.5), .geodesic(frequency: 32), .hexagonal(frequency: 60)])
     func europeHoldsTogether(mesh: MeshKind) throws {
         let (context, cut) = try Self.cut(mesh)
         if mesh == .graticule(step: 1) {
@@ -157,9 +157,9 @@ struct RiverTests {
             let gibraltar = GeoPoint(latitude: 36, longitude: -5.5).unitVector
             #expect(crossings.indices.contains { crossings[$0] && context.edges[$0].midpoint.angle(to: gibraltar) < 0.03 })
         }
-        for fraction in [0.2, 0.5] {
-            let gap = try RiverSeams.gap(context, cut, river: "Danube", at: fraction)
-            #expect(gap < 50, "the Danube opens \(Int(gap)) km")
+        for (river, fraction) in [("Danube", 0.2), ("Danube", 0.5), ("Rhein", 0.5)] {
+            let gap = try RiverSeams.gap(context, cut, river: river, at: fraction)
+            #expect(gap < 50, "the \(river) opens \(Int(gap)) km at \(fraction)")
         }
     }
 

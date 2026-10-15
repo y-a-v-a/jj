@@ -283,16 +283,18 @@ public struct RiverLayout: Layout {
         }
     }
 
-    /// Seas the mesh closes off (the Mediterranean behind Gibraltar, the
-    /// Black Sea behind the Bosporus) reach the ocean by a cut across their
-    /// strait: the shortest way over land to the ocean, or to a sea already
-    /// joined to it, if that is one edge or under 200 km. Otherwise the
-    /// curvature of all the land hanging from such a sea's shore would have
-    /// to leave along some river, and tear a continent.
+    /// Seas the mesh closes off that are really open to the ocean (the
+    /// Mediterranean behind Gibraltar, the Black Sea behind the Bosporus)
+    /// join it by a cut across their strait: of the ways over land along
+    /// cell borders to the ocean, or to a sea already joined to it, the one
+    /// crossing the least real land. Otherwise the curvature of all the land
+    /// hanging from such a sea's shore would have to leave along some river,
+    /// and tear a continent. Seas that are really closed (the Caspian) stay so.
     func straits(_ context: LayoutContext) throws -> [Bool] {
         try context.cached("straits") {
-            let mesh = context.mesh, topology = mesh.topology
+            let mesh = context.mesh, topology = mesh.topology, edges = context.edges
             let land = try Self.landAndSea(context).isLand
+            let realLand = try context.data.land(), radius = context.data.body.radius
             let vertexCount = mesh.polyhedron.vertexCount
             let pieces = context.components(of: land.map { $0 ? -1 : 0 })
             var sizes: [Int: Int] = [:]
@@ -301,51 +303,77 @@ public struct RiverLayout: Layout {
             guard let ocean = sizes.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) })?.key else {
                 return cut
             }
-            // The seas each vertex touches.
+            // A sea is open if its water lies outside every land polygon.
+            let samples = context.faceSamplePoints
+            var open: Set<Int> = []
+            for f in pieces.indices where !land[f] && !open.contains(pieces[f]) {
+                if let water = samples[f].map(GeoPoint.init).first(where: { !realLand.isLand($0) }), !realLand.isEnclosed(water) {
+                    open.insert(pieces[f])
+                }
+            }
             var seas = Array(repeating: Set<Int>(), count: vertexCount)
             for (f, face) in mesh.polyhedron.faces.enumerated() where !land[f] { for v in face { seas[v].insert(pieces[f]) } }
-            let longest = 200 / context.data.body.radius
+            // Kilometres of real land along an edge, and a little for its length.
+            var cost = Array(repeating: Double.nan, count: mesh.edgeCount)
+            func price(_ e: Int) -> Double {
+                if cost[e].isNaN {
+                    let a = mesh.polyhedron.vertices[topology.edges[e].a], b = mesh.polyhedron.vertices[topology.edges[e].b]
+                    let dry = (0...8).filter { realLand.isLand(GeoPoint(Spherical.slerp(a, b, Double($0) / 8))) }.count
+                    cost[e] = edges[e].length * radius * (Double(dry) / 9 + 0.1)
+                }
+                return cost[e]
+            }
+            let corners = (0..<vertexCount).filter { seas[$0].count > 1 }
             var joined: Set<Int> = [ocean]
 
-            /// The shortest way over land from a sea to a joined one, as edges.
-            func strait(from sea: Int) -> [Int]? {
-                var from = Array(repeating: -2, count: vertexCount)
-                var level = (0..<vertexCount).filter { seas[$0].contains(sea) }
-                for v in level { from[v] = -1 }
-                for _ in 0..<3 {
-                    var next: [Int] = []
-                    for v in level {
-                        for e in topology.vertexEdges[v] where land[topology.edges[e].leftFace] && land[topology.edges[e].rightFace] {
-                            let w = topology.edges[e].a == v ? topology.edges[e].b : topology.edges[e].a
-                            guard from[w] == -2 else { continue }
+            /// The cheapest way over land from a sea to a joined one.
+            func strait(from sea: Int) -> (price: Double, way: [Int])? {
+                var best = Array(repeating: Double.infinity, count: vertexCount)
+                var from = Array(repeating: -1, count: vertexCount)
+                var queue = VertexQueue()
+                for v in 0..<vertexCount where seas[v].contains(sea) {
+                    best[v] = 0
+                    queue.push(v, 0)
+                }
+                while let (v, d) = queue.pop() {
+                    guard d == best[v] else { continue }
+                    if !seas[v].isDisjoint(with: joined) {
+                        var way: [Int] = [], x = v
+                        while from[x] >= 0 {
+                            way.append(from[x])
+                            x = topology.edges[from[x]].a == x ? topology.edges[from[x]].b : topology.edges[from[x]].a
+                        }
+                        return (d, way)
+                    }
+                    for e in topology.vertexEdges[v] where !mesh.isInternalEdge[e]
+                    && land[topology.edges[e].leftFace] && land[topology.edges[e].rightFace] {
+                        let w = topology.edges[e].a == v ? topology.edges[e].b : topology.edges[e].a
+                        let dw = d + price(e)
+                        if dw < best[w] && dw < 1000 {
+                            best[w] = dw
                             from[w] = e
-                            if !seas[w].isDisjoint(with: joined) {
-                                var way: [Int] = [], x = w
-                                while from[x] >= 0 {
-                                    way.append(from[x])
-                                    x = topology.edges[from[x]].a == x ? topology.edges[from[x]].b : topology.edges[from[x]].a
-                                }
-                                let length = way.reduce(0) { $0 + context.edges[$1].length }
-                                return way.count == 1 || length < longest ? way : nil
-                            }
-                            next.append(w)
+                            queue.push(w, dw)
                         }
                     }
-                    level = next
                 }
                 return nil
             }
 
-            // Seas join in rounds: the Black Sea once the Mediterranean has.
-            var joining = true
-            while joining {
-                joining = false
-                for sea in sizes.keys.sorted() where !joined.contains(sea) {
-                    guard let way = strait(from: sea) else { continue }
-                    for e in way { cut[e] = true }
-                    joined.insert(sea)
-                    joining = true
+            // Seas join one at a time, the cheapest first: the Black Sea once
+            // the Mediterranean has. A sea touching a joined one at a corner
+            // is joined already, since their shores' cuts meet there.
+            while true {
+                let waiting = open.subtracting(joined).sorted()
+                guard !waiting.isEmpty else { break }
+                if let touching = corners.lazy.filter({ !seas[$0].isDisjoint(with: joined) })
+                    .compactMap({ seas[$0].subtracting(joined).intersection(waiting).min() }).first {
+                    joined.insert(touching)
+                    continue
                 }
+                let candidates = waiting.compactMap { sea in strait(from: sea).map { (sea, $0) } }
+                guard let (sea, next) = candidates.min(by: { $0.1.price < $1.1.price }) else { break }
+                for e in next.way { cut[e] = true }
+                joined.insert(sea)
             }
             return cut
         }
@@ -722,5 +750,38 @@ public struct CraterLayout: Layout {
 
     public func appearance(_ parameters: LayoutParameters) -> LayoutAppearance {
         LayoutAppearance(coloring: .relief, showGraticule: false)
+    }
+}
+
+/// Min-heap of vertices by distance, for Dijkstra's algorithm.
+private struct VertexQueue {
+    private var items: [(vertex: Int, distance: Double)] = []
+
+    mutating func push(_ vertex: Int, _ distance: Double) {
+        items.append((vertex, distance))
+        var i = items.count - 1
+        while i > 0, items[(i - 1) / 2].distance > items[i].distance {
+            items.swapAt(i, (i - 1) / 2)
+            i = (i - 1) / 2
+        }
+    }
+
+    mutating func pop() -> (vertex: Int, distance: Double)? {
+        guard let top = items.first else { return nil }
+        let last = items.removeLast()
+        if !items.isEmpty {
+            items[0] = last
+            var i = 0
+            while true {
+                let l = 2 * i + 1, r = l + 1
+                var least = i
+                if l < items.count, items[l].distance < items[least].distance { least = l }
+                if r < items.count, items[r].distance < items[least].distance { least = r }
+                if least == i { break }
+                items.swapAt(i, least)
+                i = least
+            }
+        }
+        return top
     }
 }
