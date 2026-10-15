@@ -116,7 +116,7 @@ enum EarthFields {
         units: "km", scale: .diverging, colormap: .distance, requires: [.land]
     ) { data, _ in
         let land = try data.land()
-        let index = try data.cached("index:coast") { CoastIndex(land: land) }
+        let index = try data.coastIndex()
         let width = 720, height = 360
         let landRaster = GridField.coverage(rings: land.rings, width: width, height: height, supersample: 4)
         let radius = data.body.radius
@@ -124,6 +124,15 @@ enum EarthFields {
             let d = (index.distance(to: p.unitVector) ?? 0) * radius
             return landRaster.value(latitude: p.latitude, longitude: p.longitude) >= 0.5 ? d : -d
         }
+    }
+}
+
+extension BodyData {
+    /// Points along every coastline, indexed once for all who need exact
+    /// distances to the coast.
+    public func coastIndex() throws -> CoastIndex {
+        let land = try land()
+        return try cached("index:coast") { CoastIndex(land: land) }
     }
 }
 

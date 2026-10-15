@@ -254,9 +254,10 @@ swift build -c release --product jj
    region, joined across borders by one hinge each, chosen near the equator
    and so that every piece hangs upright. Rivers keeps each land mass whole
    and weighs its edges by the distance to the nearest river instead, so the
-   hinges hold along the divides; every river is cut from its source to the
-   sea and hangs from its own mouth, which opens it by the curvature of its
-   whole basin.
+   hinges hold along the divides and the cuts run down the rivers. Each
+   river hangs from its own mouth, which opens it by the curvature of its
+   basin; where rivers close a loop (a delta, gorges a face apart) the
+   lesser one gives way.
 4. **Unfolding and folding.** A breadth-first walk over the hinges composes
    2D rigid motions, so hinged edges coincide exactly. Folding composes 3D
    hinge rotations, each closing by the same fraction of its dihedral angle

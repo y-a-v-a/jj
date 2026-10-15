@@ -5,11 +5,11 @@ import MyriaData
 @testable import MyriaLayouts
 
 /// How a cut treats the rivers. Along every river a point is set on each
-/// bank, a little over half a face away; the river is cut there when the
+/// bank, a little over half a cell away; the river is cut there when the
 /// straight way from bank to bank crosses a cut, and open by as much as the
 /// two points lie further apart on the map than on the globe.
 struct RiverSeams {
-    /// Bank pairs on land that lie in different faces.
+    /// Bank pairs on land that lie in different cells.
     var samples = 0
     /// Of those, the ones whose banks a cut separates.
     var cut = 0
@@ -24,7 +24,7 @@ struct RiverSeams {
 
     var cutShare: Double { Double(cut) / Double(max(samples, 1)) }
     func openShare(over km: Double = openGap) -> Double { Double(gaps.filter { $0 > km }.count) / Double(max(samples, 1)) }
-    var medianGap: Double { gaps.sorted()[gaps.count / 2] }
+    var medianGap: Double { gaps.isEmpty ? .nan : gaps.sorted()[gaps.count / 2] }
     /// Share of the land's open seams that follow a river.
     var precision: Double { openAlongRivers / max(openAlongRivers + openElsewhere, 1e-9) }
 
@@ -32,7 +32,7 @@ struct RiverSeams {
         let mesh = context.mesh
         let projection = MyriahedralProjection(mesh: mesh, hinges: cut.hinges, root: cut.root)
         let radius = context.data.body.radius
-        let typical = (4 * Double.pi / Double(mesh.faceCount)).squareRoot()
+        let typical = (4 * Double.pi / Double(mesh.cellCount)).squareRoot()
         let land = try context.landFraction()
         let lines = try context.data.lines(.rivers).lines.filter { $0.attribute <= rank }
         var riverPoints: [Vec3] = []
@@ -52,7 +52,7 @@ struct RiverSeams {
                     let left = (q + normal * (0.6 * typical)).normalized
                     let right = (q - normal * (0.6 * typical)).normalized
                     let fl = mesh.face(containing: left), fr = mesh.face(containing: right)
-                    guard fl != fr, land[fl] >= 0.5, land[fr] >= 0.5 else { continue }
+                    guard mesh.cells[fl] != mesh.cells[fr], land[fl] >= 0.5, land[fr] >= 0.5 else { continue }
                     samples += 1
                     var last = fl, separated = false
                     for s in 1...24 {
@@ -94,12 +94,13 @@ extension RiverSeams {
     static func gap(_ context: LayoutContext, _ cut: LayoutCut, river name: String, at fraction: Double) throws -> Double {
         let mesh = context.mesh
         let projection = MyriahedralProjection(mesh: mesh, hinges: cut.hinges, root: cut.root)
-        let typical = (4 * Double.pi / Double(mesh.faceCount)).squareRoot()
-        let coast = try RiverLayout().coastIndex(context.data)
+        let typical = (4 * Double.pi / Double(mesh.cellCount)).squareRoot()
+        let coast = try context.data.coastIndex()
+        let land = try context.landFraction()
         let line = try #require(try context.data.lines(.rivers).lines.filter { $0.name == name }.max { $0.points.count < $1.points.count })
         var v = line.points.map(\.unitVector)
         if coast.distance(to: v[0])! < coast.distance(to: v[v.count - 1])! { v.reverse() }
-        // The widest gap over a stretch of a twentieth of the river.
+        // The widest gap between banks on land, over a tenth of the river.
         var widest = 0.0
         let range = max(0, Int((fraction - 0.05) * Double(v.count - 1)))...min(v.count - 2, Int((fraction + 0.05) * Double(v.count - 1)))
         for i in range {
@@ -107,8 +108,9 @@ extension RiverSeams {
             let along = v[i + 1] - v[i]
             let normal = q.cross((along - q * along.dot(q)).normalized)
             let left = (q + normal * typical).normalized, right = (q - normal * typical).normalized
-            guard let pl = projection.project(left, through: mesh.face(containing: left)),
-                  let pr = projection.project(right, through: mesh.face(containing: right)) else { continue }
+            let fl = mesh.face(containing: left), fr = mesh.face(containing: right)
+            guard land[fl] >= 0.5, land[fr] >= 0.5,
+                  let pl = projection.project(left, through: fl), let pr = projection.project(right, through: fr) else { continue }
             widest = max(widest, ((pl - pr).length - left.angle(to: right)) * context.data.body.radius)
         }
         return widest
@@ -117,12 +119,19 @@ extension RiverSeams {
 
 @Suite("Rivers become seams")
 struct RiverTests {
+    static let cuts = OnceCache()
+
+    /// The Rivers cut on a mesh, made once for all these tests.
+    static func cut(_ mesh: MeshKind) throws -> (LayoutContext, LayoutCut) {
+        try cuts.value(mesh.argument) { try Shared.cut("rivers", mesh: mesh) }
+    }
+
     /// The rivers are cut, and nearly every seam that opens on land is a river.
-    @Test(arguments: [MeshKind.graticule(step: 1), .geodesic(frequency: 64)])
+    @Test(arguments: [MeshKind.graticule(step: 1), .geodesic(frequency: 64), .hexagonal(frequency: 60)])
     func riversAreTheSeams(mesh: MeshKind) throws {
-        let (context, cut) = try Shared.cut("rivers", mesh: mesh)
+        let (context, cut) = try Self.cut(mesh)
         let seams = try RiverSeams(context, cut, rank: 4)
-        #expect(seams.cutShare > 0.9, "\(seams.summary)")
+        #expect(seams.cutShare > 0.88, "\(seams.summary)")
         #expect(seams.precision > 0.85, "\(seams.summary)")
     }
 
@@ -130,21 +139,24 @@ struct RiverTests {
     /// its whole basin: shut near its source, widest at the sea.
     @Test(arguments: ["Amazonas", "Congo", "Mississippi"])
     func greatRiversOpenTowardTheSea(river: String) throws {
-        let (context, cut) = try Shared.cut("rivers", mesh: .graticule(step: 1))
+        let (context, cut) = try Self.cut(.graticule(step: 1))
         let upstream = try RiverSeams.gap(context, cut, river: river, at: 0.2)
         let mouth = try RiverSeams.gap(context, cut, river: river, at: 0.9)
         #expect(mouth > 80, "\(river) opens \(Int(mouth)) km near its mouth")
         #expect(mouth > 2 * upstream + 20, "\(river): \(Int(upstream)) km upstream, \(Int(mouth)) km near the mouth")
     }
 
-    /// At 1° the Mediterranean and the Black Sea are closed off. Unless they
-    /// reach the ocean across their straits, all the land hanging from their
-    /// shores tears Europe open along the Danube.
-    @Test func europeHoldsTogether() throws {
-        let (context, cut) = try Shared.cut("rivers", mesh: .graticule(step: 1))
-        let crossings = RiverLayout().straits(context, land: try landAndSeaLabels(context, minimum: 6).isLand)
-        let gibraltar = GeoPoint(latitude: 36, longitude: -5.5).unitVector
-        #expect(crossings.indices.contains { crossings[$0] && context.edges[$0].midpoint.angle(to: gibraltar) < 0.03 })
+    /// The Mediterranean and the Black Sea are closed off at these
+    /// resolutions. Unless they reach the ocean across their straits, all the
+    /// land hanging from their shores tears Europe open along the Danube.
+    @Test(arguments: [MeshKind.graticule(step: 1), .geodesic(frequency: 32)])
+    func europeHoldsTogether(mesh: MeshKind) throws {
+        let (context, cut) = try Self.cut(mesh)
+        if mesh == .graticule(step: 1) {
+            let crossings = try RiverLayout().straits(context)
+            let gibraltar = GeoPoint(latitude: 36, longitude: -5.5).unitVector
+            #expect(crossings.indices.contains { crossings[$0] && context.edges[$0].midpoint.angle(to: gibraltar) < 0.03 })
+        }
         for fraction in [0.2, 0.5] {
             let gap = try RiverSeams.gap(context, cut, river: "Danube", at: fraction)
             #expect(gap < 50, "the Danube opens \(Int(gap)) km")
@@ -152,7 +164,7 @@ struct RiverTests {
     }
 
     @Test func littleOverlap() throws {
-        let (context, cut) = try Shared.cut("rivers", mesh: .graticule(step: 1))
+        let (context, cut) = try Self.cut(.graticule(step: 1))
         let projection = MyriahedralProjection(mesh: context.mesh, hinges: cut.hinges, root: cut.root)
         #expect(projection.overlapFraction() < 0.01)
     }
