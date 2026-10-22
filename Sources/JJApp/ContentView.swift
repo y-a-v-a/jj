@@ -10,7 +10,7 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
-    @State private var showInspector = true
+    @SceneStorage("inspector") private var showInspector = true
     @State private var columns = NavigationSplitViewVisibility.automatic
     @FocusState private var isSearchFocused: Bool
 
@@ -22,9 +22,8 @@ struct ContentView: View {
             MapArea(model: model)
                 .navigationTitle(model.descriptor.title)
                 .navigationSubtitle(model.status)
-                .inspector(isPresented: $showInspector) {
+                .floatingInspector(isPresented: $showInspector) {
                     InspectorView(model: model)
-                        .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
                 }
                 .toolbar { toolbar }
         }
@@ -77,6 +76,15 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        if #available(macOS 26, *) {
+            // On the floating inspector the buttons stand bare, as the sidebar's does.
+            buttons.sharedBackgroundVisibility(showInspector ? .hidden : .automatic)
+        } else {
+            buttons
+        }
+    }
+
+    private var buttons: some ToolbarContent {
         ToolbarItemGroup {
             Button {
                 model.toggleFold()
@@ -93,7 +101,7 @@ struct ContentView: View {
             .help(model.isTouring ? "Stop touring the layouts" : "Tour every layout, folding and unfolding between them")
             ExportMenu(model: model)
             Button {
-                showInspector.toggle()
+                withAnimation(.smooth(duration: 0.3)) { showInspector.toggle() }
             } label: {
                 Label("Inspector", systemImage: "sidebar.trailing")
             }
@@ -162,6 +170,20 @@ struct MapArea: View {
         }
         .coordinateSpace(.named(MapArea.space))
         .background(Color(rgba: model.style.background))
+        .overlay {
+            if #available(macOS 26, *) {
+                // The bar behind the toolbar, across the whole window: macOS 26
+                // only draws it beside a system inspector.
+                VStack(spacing: 0) {
+                    WindowBackground()
+                        .overlay(alignment: .bottom) { Divider() }
+                        .frame(height: model.viewInsets.top)
+                    Spacer(minLength: 0)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
+        }
         .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { top in
             // The map runs under the translucent toolbar but is fitted below it.
             model.viewInsets = (top: top, bottom: 52)
@@ -171,6 +193,20 @@ struct MapArea: View {
 
 extension MapArea {
     nonisolated static let space = "mapArea"
+}
+
+/// The window's background material, tinted by the wallpaper as the
+/// system's own bars are.
+private struct WindowBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .windowBackground
+        view.blendingMode = .withinWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 private extension View {

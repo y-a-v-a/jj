@@ -95,16 +95,16 @@ struct InspectorView: View {
         Form {
             let d = model.descriptor
             if !d.parameters.isEmpty {
-                Section("Layout") {
+                Section {
                     ForEach(d.parameters) { p in ParameterControl(parameter: p, value: model.parameterBinding(p.id)) }
                     Button("Reset to Defaults") {
                         model.parameterValues[model.choiceKey] = nil
                         model.rebuild()
                     }
                     .disabled(model.parameterValues[model.choiceKey]?.isEmpty ?? true)
-                }
+                } header: { InspectorHeader("Layout") }
             }
-            Section("Myriahedron") {
+            Section {
                 MeshPicker(model: model)
                 Toggle(isOn: Binding(get: { model.gapsClosed }, set: { model.setGapsClosed($0) })) {
                     HStack(spacing: 6) {
@@ -119,8 +119,8 @@ struct InspectorView: View {
                      : "Closing the gaps needs a mesh of triangles: Geodesic or Hexagons.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            Section("Colouring") {
+            } header: { InspectorHeader("Myriahedron") }
+            Section {
                 ColoringPicker(model: model)
                 Picker("Palette", selection: $model.paletteID) {
                     ForEach(Palette.all) { Text($0.name).tag($0.id) }
@@ -129,17 +129,17 @@ struct InspectorView: View {
                     ForEach(AppearanceMode.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-            }
-            Section("Layers") {
+            } header: { InspectorHeader("Colouring") }
+            Section {
                 ForEach(LayerID.allCases.filter(model.isAvailable)) { layer in
                     Toggle(layer.title, isOn: model.layerBinding(layer))
                 }
                 if model.layerOverrides.isEmpty == false {
                     Button("Use the Layout's Layers") { model.layerOverrides = [:] }
                 }
-            }
+            } header: { InspectorHeader("Layers") }
             if let state = model.state {
-                Section("This Map") {
+                Section {
                     LabeledContent("Polygons", value: state.mesh.cellCount.formatted())
                     LabeledContent("Faces", value: state.mesh.faceCount.formatted())
                     LabeledContent("Hinges", value: (state.mesh.faceCount - 1).formatted())
@@ -149,7 +149,7 @@ struct InspectorView: View {
                     ForEach(state.timings, id: \.0) { name, t in
                         LabeledContent(name.capitalized, value: String(format: "%.0f ms", t * 1000))
                     }
-                }
+                } header: { InspectorHeader("This Map") }
             }
             Section {
                 Text("The cuts of a myriahedral map form a spanning tree of the mesh: V − 1 edges, and every face hangs from the root by exactly one path of hinges.")
@@ -160,6 +160,23 @@ struct InspectorView: View {
         .formStyle(.grouped)
         .onChange(of: model.coloringOverride) { model.refreshLabels() }
         .onChange(of: model.layerOverrides) { model.refreshLabels() }
+    }
+}
+
+/// A section title, small, as the system's inspector sets it. Outside a
+/// system inspector, as in the floating one of macOS 26, a form sets its
+/// titles large and its sections apart as Settings does.
+struct InspectorHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        let text = Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+        if #available(macOS 26, *) {
+            text.padding(.top, -14)
+        } else {
+            text
+        }
     }
 }
 
