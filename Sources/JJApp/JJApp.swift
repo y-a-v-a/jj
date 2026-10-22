@@ -35,6 +35,11 @@ struct JJApp: App {
                     .keyboardShortcut("p", modifiers: .command)
                     .disabled(model.state == nil)
             }
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Find a Place…") { model.isFindRequested = true }
+                    .keyboardShortcut("f", modifiers: .command)
+            }
             CommandGroup(after: .toolbar) {
                 Button("Zoom In") { zoom(1.6) }.keyboardShortcut("+", modifiers: .command)
                 Button("Zoom In") { zoom(1.6) }.keyboardShortcut("=", modifiers: .command)

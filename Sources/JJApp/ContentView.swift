@@ -11,9 +11,11 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @State private var showInspector = true
+    @State private var columns = NavigationSplitViewVisibility.automatic
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             GalleryView(model: model)
                 .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
         } detail: {
@@ -25,22 +27,26 @@ struct ContentView: View {
                         .inspectorColumnWidth(min: 260, ideal: 290, max: 380)
                 }
                 .toolbar { toolbar }
-                .searchable(text: $model.searchText, placement: .toolbar, prompt: "Find a place")
-                .searchSuggestions {
-                    ForEach(model.searchResults) { place in
-                        Button {
-                            model.reveal(place)
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(place.name)
-                                Text(place.detail).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
+        }
+        // Search tops the sidebar: since macOS 26 the inspector runs full height
+        // and the toolbar's trailing items stand over it, where a search field
+        // would straddle its edge.
+        .searchable(text: $model.searchText, placement: .sidebar, prompt: "Find a place")
+        .searchFocused($isSearchFocused)
+        .searchSuggestions {
+            ForEach(model.searchResults) { place in
+                Button {
+                    model.reveal(place)
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(place.name)
+                        Text(place.detail).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .onSubmit(of: .search) {
-                    if let first = model.searchResults.first { model.reveal(first) }
-                }
+            }
+        }
+        .onSubmit(of: .search) {
+            if let first = model.searchResults.first { model.reveal(first) }
         }
         .onAppear {
             model.isDark = colorScheme == .dark
@@ -56,14 +62,22 @@ struct ContentView: View {
             model.refreshThumbnails()
         }
         .onChange(of: model.paletteID) { model.refreshThumbnails() }
+        .onChange(of: model.isFindRequested) {
+            guard model.isFindRequested else { return }
+            model.isFindRequested = false
+            let hidden = columns == .detailOnly
+            columns = .all
+            // A sidebar that was hidden first slides in with its search field.
+            Task {
+                if hidden { try? await Task.sleep(for: .milliseconds(350)) }
+                isSearchFocused = true
+            }
+        }
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
-            if model.descriptor.isTimeDependent || model.layers.contains(.night) || model.layoutID == "timezones" {
-                TimeScrubber(model: model)
-            }
             Button {
                 model.toggleFold()
             } label: {
@@ -97,6 +111,9 @@ struct MapArea: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let showsTime = model.descriptor.isTimeDependent || model.layers.contains(.night) || model.layoutID == "timezones"
+            // The time card goes beside the story card where there is room, else beneath it.
+            let timeBeside = geometry.size.width >= 720
             ZStack(alignment: .topLeading) {
                 MapView(model: model)
                 LabelLayer(model: model, size: geometry.size, occluded: Array(cards.values))
@@ -113,7 +130,13 @@ struct MapArea: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                StoryCard(model: model).reportFrame("story", into: $cards).padding(14)
+                VStack(alignment: .leading, spacing: 10) {
+                    StoryCard(model: model).reportFrame("story", into: $cards)
+                    if showsTime && !timeBeside {
+                        TimeScrubber(model: model).reportFrame("time below", into: $cards)
+                    }
+                }
+                .padding(14)
             }
             .overlay(alignment: .bottomLeading) {
                 HStack(alignment: .bottom, spacing: 10) {
@@ -126,9 +149,15 @@ struct MapArea: View {
                 ZoomControls(model: model, size: geometry.size).reportFrame("zoom", into: $cards).padding(14)
             }
             .overlay(alignment: .topTrailing) {
-                if model.isBuilding {
-                    ProgressView().controlSize(.small).padding(16)
+                HStack(spacing: 10) {
+                    if model.isBuilding {
+                        ProgressView().controlSize(.small)
+                    }
+                    if showsTime && timeBeside {
+                        TimeScrubber(model: model).reportFrame("time beside", into: $cards)
+                    }
                 }
+                .padding(14)
             }
         }
         .coordinateSpace(.named(MapArea.space))
@@ -146,11 +175,12 @@ extension MapArea {
 
 private extension View {
     /// Keeps `frames[key]` up to date with this view's frame in the map area
-    /// (or removes it while the view is empty).
+    /// (or removes it while the view is empty or gone).
     func reportFrame(_ key: String, into frames: Binding<[String: CGRect]>) -> some View {
         onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MapArea.space)) } action: { frame in
             frames.wrappedValue[key] = frame.isEmpty ? nil : frame
         }
+        .onDisappear { frames.wrappedValue[key] = nil }
     }
 }
 
@@ -409,7 +439,8 @@ struct LabelLayer: View {
     }
 }
 
-/// Moves the shown time up to a day either way.
+/// Moves the shown time up to a day either way: a card over the map, as the
+/// toolbar keeps to what fits over the inspector.
 struct TimeScrubber: View {
     @Bindable var model: AppModel
 
@@ -427,6 +458,7 @@ struct TimeScrubber: View {
                 model.toggleTimeLapse()
             } label: {
                 Image(systemName: model.isTimeLapse ? "pause.fill" : "forward.fill")
+                    .frame(width: 20)
             }
             .help(model.isTimeLapse ? "Stop the time-lapse" : "Time-lapse: an hour a second; watch the seams and the night sweep round")
             .accessibilityLabel(model.isTimeLapse ? "Stop the Time-Lapse" : "Time-Lapse")
@@ -436,7 +468,10 @@ struct TimeScrubber: View {
             }
             .disabled(model.timeOffset == 0)
         }
-        .padding(.horizontal, 8)
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .glassBackground(Capsule())
     }
 
     private var offsetText: String {
