@@ -23,6 +23,7 @@ struct JJApp: App {
         }
         .defaultSize(width: 1600, height: 960)
         .commands {
+            FindCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("About JJ") { openWindow(id: "about") }
             }
@@ -34,11 +35,6 @@ struct JJApp: App {
                 Button("Print a Paper Globe…") { model.isShowingPaper = true }
                     .keyboardShortcut("p", modifiers: .command)
                     .disabled(model.state == nil)
-            }
-            CommandGroup(after: .pasteboard) {
-                Divider()
-                Button("Find a Place…") { model.isFindRequested = true }
-                    .keyboardShortcut("f", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Zoom In") { zoom(1.6) }.keyboardShortcut("+", modifiers: .command)
@@ -107,4 +103,23 @@ struct JJApp: App {
         v.zoom(by: factor, around: Vec2(mapSize.width / 2, mapSize.height / 2))
         model.camera = MapCamera(zoom: v.zoom, center: v.center)
     }
+}
+
+/// Edit ▸ Find a Place (⌘F), for the map window in front.
+struct FindCommands: Commands {
+    @FocusedValue(\.findPlace) private var findPlace
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Find a Place…") { findPlace?() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(findPlace == nil)
+        }
+    }
+}
+
+extension FocusedValues {
+    /// Focuses the search field of the map window in front.
+    @Entry var findPlace: (() -> Void)?
 }

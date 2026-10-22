@@ -760,8 +760,6 @@ final class AppModel {
     // MARK: Search
 
     var searchText = ""
-    /// Set by Edit ▸ Find a Place (⌘F): the window then focuses its search field.
-    var isFindRequested = false
     /// The paper globe sheet (Export menu, ⌘P).
     var isShowingPaper = false
     /// The place found last, and when, for the marker's pulse.

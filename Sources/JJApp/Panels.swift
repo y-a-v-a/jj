@@ -163,19 +163,21 @@ struct InspectorView: View {
     }
 }
 
-/// A section title, small, as the system's inspector sets it. Outside a
-/// system inspector, as in the floating one of macOS 26, a form sets its
-/// titles large and its sections apart as Settings does.
+/// A section title. Outside a system inspector, as in the floating one of
+/// macOS 26, a form sets its titles large and its sections apart as
+/// Settings does: this sets them small and close, as the inspector did.
 struct InspectorHeader: View {
     let title: String
     init(_ title: String) { self.title = title }
 
     var body: some View {
-        let text = Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
         if #available(macOS 26, *) {
-            text.padding(.top, -14)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, -14)  // No section spacing API on macOS.
         } else {
-            text
+            Text(title)
         }
     }
 }

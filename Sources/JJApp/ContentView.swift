@@ -61,16 +61,17 @@ struct ContentView: View {
             model.refreshThumbnails()
         }
         .onChange(of: model.paletteID) { model.refreshThumbnails() }
-        .onChange(of: model.isFindRequested) {
-            guard model.isFindRequested else { return }
-            model.isFindRequested = false
-            let hidden = columns == .detailOnly
-            columns = .all
-            // A sidebar that was hidden first slides in with its search field.
-            Task {
-                if hidden { try? await Task.sleep(for: .milliseconds(350)) }
-                isSearchFocused = true
-            }
+        .focusedSceneValue(\.findPlace, findPlace)
+    }
+
+    /// Focuses the search field, showing a hidden sidebar first.
+    private func findPlace() {
+        let hidden = columns == .detailOnly
+        columns = .all
+        // A sidebar that was hidden first slides in with its search field.
+        Task {
+            if hidden { try? await Task.sleep(for: .milliseconds(350)) }
+            isSearchFocused = true
         }
     }
 
@@ -116,6 +117,8 @@ struct MapArea: View {
     @Bindable var model: AppModel
     /// Frames of the cards floating over the map, which labels keep clear of.
     @State private var cards: [String: CGRect] = [:]
+    /// The height of this window's toolbar.
+    @State private var toolbarHeight = 0.0
 
     var body: some View {
         GeometryReader { geometry in
@@ -177,7 +180,7 @@ struct MapArea: View {
                 VStack(spacing: 0) {
                     WindowBackground()
                         .overlay(alignment: .bottom) { Divider() }
-                        .frame(height: model.viewInsets.top)
+                        .frame(height: toolbarHeight)
                     Spacer(minLength: 0)
                 }
                 .ignoresSafeArea()
@@ -186,6 +189,7 @@ struct MapArea: View {
         }
         .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { top in
             // The map runs under the translucent toolbar but is fitted below it.
+            toolbarHeight = top
             model.viewInsets = (top: top, bottom: 52)
         }
     }

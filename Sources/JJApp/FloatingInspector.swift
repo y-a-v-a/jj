@@ -13,13 +13,15 @@ extension View {
 struct FloatingInspector<Panel: View>: ViewModifier {
     @Binding var isPresented: Bool
     let panel: Panel
-    @AppStorage("inspectorWidth") private var width = 290.0
-    /// The width when a resize began.
-    @State private var resizeStart: Double?
+    @AppStorage("inspectorWidth") private var savedWidth = 290.0
+    /// How far the pane's edge has been dragged in a resize.
+    @GestureState private var resize = 0.0
 
     static var widths: ClosedRange<Double> { 260...380 }
     /// How far the pane keeps from the window's edges, as the sidebar does.
     static var margin: CGFloat { 8 }
+
+    private var width: Double { (savedWidth - resize).clamped(to: Self.widths) }
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
@@ -44,7 +46,7 @@ struct FloatingInspector<Panel: View>: ViewModifier {
         let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true)
         return panel
             .scrollContentBackground(.hidden)
-            .frame(width: width.clamped(to: Self.widths))
+            .frame(width: width)
             .mask {
                 shape.padding(.top, Self.margin).ignoresSafeArea(.container, edges: .top)
             }
@@ -67,12 +69,10 @@ struct FloatingInspector<Panel: View>: ViewModifier {
             .pointerStyle(.frameResize(position: .leading))
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                    .onChanged { drag in
-                        let start = resizeStart ?? width.clamped(to: Self.widths)
-                        resizeStart = start
-                        width = (start - drag.translation.width).clamped(to: Self.widths)
+                    .updating($resize) { drag, resize, _ in resize = drag.translation.width }
+                    .onEnded { drag in
+                        savedWidth = (savedWidth.clamped(to: Self.widths) - drag.translation.width).clamped(to: Self.widths)
                     }
-                    .onEnded { _ in resizeStart = nil }
             )
     }
 }
